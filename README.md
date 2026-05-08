@@ -6,7 +6,7 @@
 
 **ICML 2026 Spotlight (Top 2.2%)**
 
-[Project Page](https://westworldrobot.github.io/) | [Pretraining Dataset](https://huggingface.co/datasets/ywang077/Trajectory_world_model_dataset/) | [Checkpoints](https://huggingface.co/ywang077/WestWorld)
+[Paper](https://arxiv.org/abs/2603.14392) | [Project Page](https://westworldrobot.github.io/) | [Pretraining Dataset](https://huggingface.co/datasets/ywang077/Trajectory_world_model_dataset/) | [Checkpoints](https://huggingface.co/ywang077/WestWorld)
 
 </div>
 
