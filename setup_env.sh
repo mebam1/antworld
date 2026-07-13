@@ -155,8 +155,8 @@ export TMP=$TMP_ROOT_Q
 # Add NVIDIA driver path for libcuda.so (override with NVIDIA_LIB_DIR if needed)
 NVIDIA_LIB_DIR="\${NVIDIA_LIB_DIR:-}"
 if [ -z "\$NVIDIA_LIB_DIR" ]; then
-  for cand in /usr/lib/nvidia /usr/lib/x86_64-linux-gnu /usr/local/nvidia/lib64; do
-    if [ -d "\$cand" ]; then
+  for cand in /usr/lib/nvidia /usr/local/nvidia/lib64; do
+    if [ -d "\$cand" ] && [ -e "\$cand/libcuda.so" -o -e "\$cand/libcuda.so.1" ]; then
       NVIDIA_LIB_DIR="\$cand"
       break
     fi
