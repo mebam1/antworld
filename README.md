@@ -45,7 +45,7 @@ Run training inside the container:
 docker compose run --rm westworld python train.py
 ```
 
-The compose file mounts `Trajworld_data/`, `dataset_h5/`, `dataset_h5_ant_running/`, `pre_trained/`, `outputs/`, `figure/`, and `wandb/` from the host, so datasets and checkpoints are not baked into the image. GPU execution requires Docker with NVIDIA Container Toolkit.
+The compose file mounts `Trajworld_data/`, `dataset_h5/`, `dataset_h5_ant_running/`, `pre_trained/`, `outputs/`, `figure/`, and `wandb/` from the host, so datasets and checkpoints are not baked into the image. GPU execution requires Docker with NVIDIA Container Toolkit. The container is configured to expose only host GPU `1`.
 
 ## Quick Start
 

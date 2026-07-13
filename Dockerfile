@@ -22,7 +22,7 @@ ENV CONDA_DIR=${CONDA_DIR} \
     WANDB_DIR=${WESTWORLD_EXTERNAL_ROOT}/wandb \
     CUDA_HOME=/usr/local/cuda \
     FORCE_CUDA=1 \
-    NVIDIA_VISIBLE_DEVICES=all \
+    NVIDIA_VISIBLE_DEVICES=1 \
     NVIDIA_DRIVER_CAPABILITIES=compute,utility,graphics
 
 SHELL ["/bin/bash", "-lc"]
