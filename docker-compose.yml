@@ -1,0 +1,26 @@
+services:
+  westworld:
+    build:
+      context: .
+      args:
+        ENV_NAME: westworld
+        WESTWORLD_EXTERNAL_ROOT: /opt/westworld-external
+    image: antworld:latest
+    working_dir: /workspace/WestWorld
+    shm_size: "16gb"
+    stdin_open: true
+    tty: true
+    gpus: all
+    environment:
+      WANDB_MODE: offline
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility,graphics
+    volumes:
+      - ./Trajworld_data:/workspace/WestWorld/Trajworld_data
+      - ./dataset_h5:/workspace/WestWorld/dataset_h5
+      - ./dataset_h5_ant_running:/workspace/WestWorld/dataset_h5_ant_running
+      - ./pre_trained:/workspace/WestWorld/pre_trained
+      - ./outputs:/workspace/WestWorld/outputs
+      - ./figure:/workspace/WestWorld/figure
+      - ./wandb:/workspace/WestWorld/wandb
+    command: bash

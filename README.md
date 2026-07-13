@@ -17,17 +17,35 @@ WestWorld is a scalable trajectory world model for diverse robotic systems. This
 Recommended setup:
 
 ```bash
-bash setup_env.sh
+bash setup_env.bash /path/to/external/files westworld
 conda activate westworld
 ```
 
 The setup script installs the main dependencies, including MuJoCo 2.1, PyTorch 2.4.1, `mujoco-py`, `d4rl`, `lightning`, `wandb`, and the local `mjrl` / `mjmpc` packages.
 
-If you want to install MuJoCo under a custom external path, run:
+The first argument controls where non-environment files such as MuJoCo, caches, build temp files, and runtime config directories are stored.
+
+## Docker
+
+Build the CUDA 11.8 container:
 
 ```bash
-EXT_PATH=/your/base/path bash setup_env.sh
+docker compose build
 ```
+
+Start an interactive shell:
+
+```bash
+docker compose run --rm westworld
+```
+
+Run training inside the container:
+
+```bash
+docker compose run --rm westworld python train.py
+```
+
+The compose file mounts `Trajworld_data/`, `dataset_h5/`, `dataset_h5_ant_running/`, `pre_trained/`, `outputs/`, `figure/`, and `wandb/` from the host, so datasets and checkpoints are not baked into the image. GPU execution requires Docker with NVIDIA Container Toolkit.
 
 ## Quick Start
 
