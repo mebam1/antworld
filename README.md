@@ -21,13 +21,13 @@ bash setup_env.bash /path/to/external/files westworld
 conda activate westworld
 ```
 
-The setup script installs the main dependencies, including MuJoCo 2.1, PyTorch 2.4.1, `mujoco-py`, `d4rl`, `lightning`, `wandb`, and the local `mjrl` / `mjmpc` packages.
+The setup script installs the main dependencies, including MuJoCo 2.1, PyTorch 2.11.0 with CUDA 12.8 wheels, `mujoco-py`, `d4rl`, `lightning`, `wandb`, and the local `mjrl` / `mjmpc` packages.
 
 The first argument controls where non-environment files such as MuJoCo, caches, build temp files, and runtime config directories are stored.
 
 ## Docker
 
-Build the CUDA 11.8 container:
+Build the CUDA 12.8 container:
 
 ```bash
 docker compose build

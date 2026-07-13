@@ -29,8 +29,8 @@ fi
 # === config ===
 INSTALL_ROOT_INPUT="$1"
 ENV_NAME="${2:-westworld}"          # env name
-PYTHON_VERSION="3.8"
-TORCH_INDEX_URL="https://download.pytorch.org/whl/cu118"
+PYTHON_VERSION="3.10"
+TORCH_INDEX_URL="https://download.pytorch.org/whl/cu128"
 USE_UV="${USE_UV:-0}"          # set to 1 to prefer uv pip if available
 
 mkdir -p "$INSTALL_ROOT_INPUT"
@@ -53,6 +53,7 @@ export XDG_CACHE_HOME="$CACHE_ROOT/xdg"
 export XDG_CONFIG_HOME="$CONFIG_ROOT/xdg"
 export MPLCONFIGDIR="$CONFIG_ROOT/matplotlib"
 export TORCH_EXTENSIONS_DIR="$CACHE_ROOT/torch_extensions"
+export TORCH_CUDA_ARCH_LIST="${TORCH_CUDA_ARCH_LIST:-12.0}"
 export TMPDIR="$TMP_ROOT"
 export TEMP="$TMP_ROOT"
 export TMP="$TMP_ROOT"
@@ -130,6 +131,10 @@ export MPLCONFIGDIR=$CONFIG_ROOT_Q/matplotlib
 export _WW_HAD_TORCH_EXTENSIONS_DIR="\${TORCH_EXTENSIONS_DIR+x}"
 export _WW_OLD_TORCH_EXTENSIONS_DIR="\${TORCH_EXTENSIONS_DIR:-}"
 export TORCH_EXTENSIONS_DIR=$CACHE_ROOT_Q/torch_extensions
+
+export _WW_HAD_TORCH_CUDA_ARCH_LIST="\${TORCH_CUDA_ARCH_LIST+x}"
+export _WW_OLD_TORCH_CUDA_ARCH_LIST="\${TORCH_CUDA_ARCH_LIST:-}"
+export TORCH_CUDA_ARCH_LIST="\${TORCH_CUDA_ARCH_LIST:-12.0}"
 
 export _WW_HAD_WANDB_DIR="\${WANDB_DIR+x}"
 export _WW_OLD_WANDB_DIR="\${WANDB_DIR:-}"
@@ -223,6 +228,13 @@ else
 fi
 unset _WW_HAD_TORCH_EXTENSIONS_DIR _WW_OLD_TORCH_EXTENSIONS_DIR
 
+if [ "${_WW_HAD_TORCH_CUDA_ARCH_LIST:-}" = "x" ]; then
+  export TORCH_CUDA_ARCH_LIST="$_WW_OLD_TORCH_CUDA_ARCH_LIST"
+else
+  unset TORCH_CUDA_ARCH_LIST
+fi
+unset _WW_HAD_TORCH_CUDA_ARCH_LIST _WW_OLD_TORCH_CUDA_ARCH_LIST
+
 if [ "${_WW_HAD_WANDB_DIR:-}" = "x" ]; then
   export WANDB_DIR="$_WW_OLD_WANDB_DIR"
 else
@@ -305,9 +317,9 @@ pip_install "gym==0.23.1"
 pip_install "mujoco-py>=2.1,<2.2"   
 pip_install "Cython<3" "importlib-metadata<5.0" six "imageio[ffmpeg]" d4rl tensordict matplotlib
 
-# 5) install CUDA 11.8 and PyTorch 2.4.1
-echo ">>> Installing PyTorch 2.4.1 + cu118"
-pip_install torch==2.4.1 torchvision==0.19.1 torchaudio==2.4.1 \
+# 5) install CUDA 12.8 and PyTorch 2.11.0
+echo ">>> Installing PyTorch 2.11.0 + cu128"
+pip_install torch==2.11.0 torchvision==0.26.0 torchaudio==2.11.0 \
   --index-url "$TORCH_INDEX_URL"   
 
 # 6) Lightning + experiment logging
@@ -318,9 +330,10 @@ pip_install lightning wandb
 echo ">>> Installing config utils (hydra-core, omegaconf)"
 pip_install hydra-core omegaconf
 
-# 8) mamba-ssm (need CUDA>=11.6 & nvcc)
-echo ">>> Installing mamba-ssm 2.2.2"
-pip_install "mamba-ssm==2.2.2" --no-build-isolation
+# 8) mamba-ssm (needs CUDA toolkit/nvcc matching the PyTorch CUDA build)
+echo ">>> Installing mamba-ssm 2.3.2.post1"
+pip_install ninja packaging wheel setuptools
+pip_install "mamba-ssm==2.3.2.post1" --no-build-isolation
 
 # 9) install local mjrl & mjmpc
 echo ">>> Installing local packages mjrl & mjmpc"

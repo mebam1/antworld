@@ -1,4 +1,4 @@
-FROM nvidia/cuda:11.8.0-cudnn8-devel-ubuntu20.04
+FROM nvidia/cuda:12.8.0-cudnn-devel-ubuntu22.04
 
 ARG DEBIAN_FRONTEND=noninteractive
 ARG CONDA_DIR=/opt/conda
@@ -22,6 +22,7 @@ ENV CONDA_DIR=${CONDA_DIR} \
     WANDB_DIR=${WESTWORLD_EXTERNAL_ROOT}/wandb \
     CUDA_HOME=/usr/local/cuda \
     FORCE_CUDA=1 \
+    TORCH_CUDA_ARCH_LIST=12.0 \
     NVIDIA_VISIBLE_DEVICES=1 \
     NVIDIA_DRIVER_CAPABILITIES=compute,utility,graphics
 
