@@ -1,4 +1,4 @@
-FROM nvidia/cuda:12.8.0-cudnn-devel-ubuntu22.04
+FROM nvidia/cuda:12.8.0-devel-ubuntu22.04
 
 ARG DEBIAN_FRONTEND=noninteractive
 ARG CONDA_DIR=/opt/conda
@@ -10,7 +10,8 @@ ENV CONDA_DIR=${CONDA_DIR} \
     WESTWORLD_EXTERNAL_ROOT=${WESTWORLD_EXTERNAL_ROOT} \
     PATH=${CONDA_DIR}/envs/${ENV_NAME}/bin:${CONDA_DIR}/bin:${PATH} \
     MUJOCO_PY_MUJOCO_PATH=${WESTWORLD_EXTERNAL_ROOT}/.mujoco/mujoco210 \
-    LD_LIBRARY_PATH=${WESTWORLD_EXTERNAL_ROOT}/.mujoco/mujoco210/bin:${LD_LIBRARY_PATH} \
+    PYTORCH_NVIDIA_LIB_ROOT=${CONDA_DIR}/envs/${ENV_NAME}/lib/python3.10/site-packages/nvidia \
+    LD_LIBRARY_PATH=${CONDA_DIR}/envs/${ENV_NAME}/lib/python3.10/site-packages/nvidia/nccl/lib:${CONDA_DIR}/envs/${ENV_NAME}/lib/python3.10/site-packages/nvidia/cudnn/lib:${CONDA_DIR}/envs/${ENV_NAME}/lib/python3.10/site-packages/nvidia/cublas/lib:${WESTWORLD_EXTERNAL_ROOT}/.mujoco/mujoco210/bin:${LD_LIBRARY_PATH} \
     XDG_CACHE_HOME=${WESTWORLD_EXTERNAL_ROOT}/cache/xdg \
     XDG_CONFIG_HOME=${WESTWORLD_EXTERNAL_ROOT}/config/xdg \
     MPLCONFIGDIR=${WESTWORLD_EXTERNAL_ROOT}/config/matplotlib \

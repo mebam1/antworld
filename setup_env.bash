@@ -103,6 +103,15 @@ export MUJOCO_PY_MUJOCO_PATH=$MUJOCO_DIR_Q
 export _WW_HAD_LD_LIBRARY_PATH="\${LD_LIBRARY_PATH+x}"
 export _WW_OLD_LD_LIBRARY_PATH="\${LD_LIBRARY_PATH:-}"
 export LD_LIBRARY_PATH="\${LD_LIBRARY_PATH:-}:\$MUJOCO_PY_MUJOCO_PATH/bin"
+if command -v python >/dev/null 2>&1; then
+  _WW_PY_SITE_PACKAGES="\$(python - <<'PY'
+import sysconfig
+print(sysconfig.get_paths()["purelib"])
+PY
+)"
+  export LD_LIBRARY_PATH="\$_WW_PY_SITE_PACKAGES/nvidia/nccl/lib:\$_WW_PY_SITE_PACKAGES/nvidia/cudnn/lib:\$_WW_PY_SITE_PACKAGES/nvidia/cublas/lib:\$LD_LIBRARY_PATH"
+  unset _WW_PY_SITE_PACKAGES
+fi
 
 export _WW_HAD_XDG_CACHE_HOME="\${XDG_CACHE_HOME+x}"
 export _WW_OLD_XDG_CACHE_HOME="\${XDG_CACHE_HOME:-}"
@@ -309,18 +318,24 @@ else
 fi
 
 export MUJOCO_PY_MUJOCO_PATH="$MUJOCO_DIR"
-export LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-}:$MUJOCO_PY_MUJOCO_PATH/bin"
+PY_SITE_PACKAGES="$(python - <<'PY'
+import sysconfig
+print(sysconfig.get_paths()["purelib"])
+PY
+)"
+export LD_LIBRARY_PATH="$PY_SITE_PACKAGES/nvidia/nccl/lib:$PY_SITE_PACKAGES/nvidia/cudnn/lib:$PY_SITE_PACKAGES/nvidia/cublas/lib:${LD_LIBRARY_PATH:-}:$MUJOCO_PY_MUJOCO_PATH/bin"
 
-# 4) Gym / mujoco-py / d4rl 
-echo ">>> Installing gym, mujoco-py and friends"
-pip_install "gym==0.23.1"
-pip_install "mujoco-py>=2.1,<2.2"   
-pip_install "Cython<3" "importlib-metadata<5.0" six "imageio[ffmpeg]" d4rl tensordict matplotlib
-
-# 5) install CUDA 12.8 and PyTorch 2.11.0
+# 4) install CUDA 12.8 and PyTorch 2.11.0 first so later deps do not pull a mismatched torch/NVIDIA stack.
 echo ">>> Installing PyTorch 2.11.0 + cu128"
 pip_install torch==2.11.0 torchvision==0.26.0 torchaudio==2.11.0 \
   --index-url "$TORCH_INDEX_URL"   
+
+# 5) Gym / mujoco-py / d4rl 
+echo ">>> Installing gym, mujoco-py and friends"
+pip_install "Cython<3" "importlib-metadata<5.0" six cloudpickle numpy pyparsing pillow tqdm termcolor dm_control absl-py
+pip_install "gym==0.23.1" "mujoco-py>=2.1,<2.2" "imageio[ffmpeg]" matplotlib
+pip_install tensordict --no-deps
+pip_install d4rl --no-deps
 
 # 6) Lightning + experiment logging
 echo ">>> Installing Lightning and wandb"
@@ -332,8 +347,22 @@ pip_install hydra-core omegaconf
 
 # 8) mamba-ssm (needs CUDA toolkit/nvcc matching the PyTorch CUDA build)
 echo ">>> Installing mamba-ssm 2.3.2.post1"
-pip_install ninja packaging wheel setuptools
-pip_install "mamba-ssm==2.3.2.post1" --no-build-isolation
+pip_install ninja packaging wheel setuptools einops
+pip_install "mamba-ssm==2.3.2.post1" --no-build-isolation --no-deps
+
+echo ">>> Verifying PyTorch package versions"
+python - <<'PY'
+import torch
+import torchvision
+import torchaudio
+
+expected = "2.11.0"
+if torch.__version__.split("+", 1)[0] != expected:
+    raise RuntimeError(f"Expected torch {expected}, got {torch.__version__}")
+print("torch      :", torch.__version__)
+print("torchvision:", torchvision.__version__)
+print("torchaudio :", torchaudio.__version__)
+PY
 
 # 9) install local mjrl & mjmpc
 echo ">>> Installing local packages mjrl & mjmpc"
