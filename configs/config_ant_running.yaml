@@ -1,0 +1,26 @@
+# exp setting
+exp_name: 'Ant-Running-WestWorld'
+
+# Use the pretrained WestWorld checkpoint for Ant finetuning by default.
+# Set to null for scratch training:
+#   python train.py --config-name config_ant_running ckpt_path=null
+ckpt_path: './pre_trained/westworld.ckpt'
+
+seed: 43
+devices: [0]
+use_kd: False
+
+# data loading
+load_num_workers: 4
+use_cache: True
+overwrite_cache: False
+
+# evaluation settings
+eval_prefix_T: 50
+eval_batch_size: 2
+eval_max_plot_samples: 3
+eval_figure_dir: "figure/ant_running"
+
+defaults:
+  - method: WestWorld_ant_running
+  - data: ant_running

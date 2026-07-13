@@ -1,6 +1,6 @@
 # exp setting
 exp_name: 'Trajectory-World-Model' # [1]
-ckpt_path: null
+ckpt_path: './pre_trained/westworld.ckpt'
 #*********************************
 # ckpt_path: './pre_trained/MLP.ckpt'
 # ckpt_path: './pre_trained/TDM.ckpt'

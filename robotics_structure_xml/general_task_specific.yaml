@@ -5160,5 +5160,61 @@ tasks:
       - [v_jnt,  0, thigh_left]       # thigh_left_joint angular velocity
       - [v_jnt,  0, leg_left]         # leg_left_joint angular velocity
       - [v_jnt,  0, foot_left]        # foot_left_joint angular velocity
+  131:
+    robotics_type: ant
+    xml: robotics_structure_xml/ant.xml
+
+    # Ant Running: 8D joint-space torque for the non-base revolute joints.
+    # Action order follows the actuator order in robotics_structure_xml/ant.xml.
+    actions:
+      - [torque, 0, right_back_leg]   # hip_4
+      - [torque, 0, ankle_4]          # ankle_4
+      - [torque, 0, front_left_leg]   # hip_1
+      - [torque, 0, ankle_1]          # ankle_1
+      - [torque, 0, front_right_leg]  # hip_2
+      - [torque, 0, ankle_2]          # ankle_2
+      - [torque, 0, back_leg]         # hip_3
+      - [torque, 0, ankle_3]          # ankle_3
+
+    # Observation space: 29 dims.
+    # [height(1), base quaternion(4), base linear velocity(3),
+    #  base angular velocity(3), joint positions(8), joint velocities(8),
+    #  up and heading projections(2)]
+    observations:
+      - [height, 0, torso]            # h
+
+      - [quat, 0, torso]              # base quaternion w
+      - [quat, 0, torso]              # base quaternion x
+      - [quat, 0, torso]              # base quaternion y
+      - [quat, 0, torso]              # base quaternion z
+
+      - [v_lin, 0, torso]             # vx
+      - [v_lin, 0, torso]             # vy
+      - [v_lin, 0, torso]             # vz
+
+      - [v_ang, 0, torso]             # wx
+      - [v_ang, 0, torso]             # wy
+      - [v_ang, 0, torso]             # wz
+
+      - [pos_jnt, 0, right_back_leg]  # hip_4
+      - [pos_jnt, 0, ankle_4]         # ankle_4
+      - [pos_jnt, 0, front_left_leg]  # hip_1
+      - [pos_jnt, 0, ankle_1]         # ankle_1
+      - [pos_jnt, 0, front_right_leg] # hip_2
+      - [pos_jnt, 0, ankle_2]         # ankle_2
+      - [pos_jnt, 0, back_leg]        # hip_3
+      - [pos_jnt, 0, ankle_3]         # ankle_3
+
+      - [v_jnt, 0, right_back_leg]    # hip_4 velocity
+      - [v_jnt, 0, ankle_4]           # ankle_4 velocity
+      - [v_jnt, 0, front_left_leg]    # hip_1 velocity
+      - [v_jnt, 0, ankle_1]           # ankle_1 velocity
+      - [v_jnt, 0, front_right_leg]   # hip_2 velocity
+      - [v_jnt, 0, ankle_2]           # ankle_2 velocity
+      - [v_jnt, 0, back_leg]          # hip_3 velocity
+      - [v_jnt, 0, ankle_3]           # ankle_3 velocity
+
+      - [upright, 0, torso]           # p_up
+      - [heading, 0, torso]           # p_heading
   # --------------------------
 # --------------------------

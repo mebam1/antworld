@@ -1,0 +1,55 @@
+# config/method/WestWorld_ant_running.yaml
+model_name: WestWorld
+
+# Ant-only finetuning/training settings.
+epochs: 100
+lr: 2e-4
+total_steps: 50_000
+warmup_steps: 1000
+weight_decay: 1e-5
+# Ant-only datasets can have fewer batches than an integer validation interval.
+# Use a float so Lightning validates once at the end of each epoch.
+val_every_n_steps: 1.0
+accumulate_grad_batches: 1
+
+train_batch_size: 32
+eval_batch_size: 32
+
+steps_per_epoch: 1
+
+# Keep false for normal training. If ckpt_path points to a pretrained
+# checkpoint, train.py will still load it and continue from that state.
+resume_fixed_lr_mode: False
+finetune_few_params: False
+finetune_last_n_blocks: 6
+resume_fixed_lr: 1e-5
+resume_extra_steps: 300
+
+kd:
+  enabled: False
+  alpha: 0.5
+  teacher_ckpt: null
+  teacher_h5_dir: ./dataset_h5_ant_running_kd
+  teacher_val_h5_dir: ./dataset_h5_ant_running_kd
+  precompute_batch_size: 128
+  overwrite_teacher_h5: false
+
+uniform_bins: 256
+h_dim: 256
+n_blocks: 6
+n_heads: 4
+drop_p: 0.1
+max_timestep: 1024
+rel_sigma: 0.75
+
+mamba_cfg:
+  state_size: 64
+  conv_dimension: 4
+  expansion_factor: 2
+  num_layers: 1
+  num_experts: 4
+  top_k: 1
+  layernorm_epsilon: 1e-5
+  use_switch_mlp: false
+  hidden_size: 256
+  ffn_hidden_size: 512

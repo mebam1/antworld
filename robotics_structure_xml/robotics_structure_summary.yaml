@@ -3003,3 +3003,55 @@ walker_7_flipped:
       pre: 6
       inlcrs: 0
       postlcrs: 0
+ant:
+  xml: robotics_structure_xml/ant.xml
+  num_objects: 1
+  objects:
+  - obj_id: 0
+    num_nodes: 9
+    nodes:
+    - body: torso
+      idx: 0
+      pre: 0
+      inlcrs: 8
+      postlcrs: 8
+    - body: front_left_leg
+      idx: 1
+      pre: 1
+      inlcrs: 6
+      postlcrs: 7
+    - body: ankle_1
+      idx: 2
+      pre: 2
+      inlcrs: 7
+      postlcrs: 6
+    - body: front_right_leg
+      idx: 3
+      pre: 3
+      inlcrs: 4
+      postlcrs: 5
+    - body: ankle_2
+      idx: 4
+      pre: 4
+      inlcrs: 5
+      postlcrs: 4
+    - body: back_leg
+      idx: 5
+      pre: 5
+      inlcrs: 2
+      postlcrs: 3
+    - body: ankle_3
+      idx: 6
+      pre: 6
+      inlcrs: 3
+      postlcrs: 2
+    - body: right_back_leg
+      idx: 7
+      pre: 7
+      inlcrs: 1
+      postlcrs: 1
+    - body: ankle_4
+      idx: 8
+      pre: 8
+      inlcrs: 0
+      postlcrs: 0
