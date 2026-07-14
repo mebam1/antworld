@@ -30,6 +30,14 @@ The first argument controls where non-environment files such as MuJoCo, caches, 
 Build the CUDA 12.8 container:
 
 ```bash
+DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1 docker compose build
+```
+
+After the first successful build, ordinary source-code changes should reuse the
+expensive dependency layers. Use `--no-cache` only when CUDA, PyTorch, Conda, or
+`setup_env.bash` dependency versions change:
+
+```bash
 docker compose build
 ```
 

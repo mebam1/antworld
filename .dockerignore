@@ -5,6 +5,7 @@
 .cache
 __pycache__
 **/__pycache__
+**/*.egg-info
 *.pyc
 *.pyo
 *.pyd
@@ -13,6 +14,12 @@ __pycache__
 *.ckpt
 *.xlsx
 *.deb
+*.mp4
+*.avi
+*.mov
+*.webm
+*.mkv
+*.gif
 
 outputs
 output
@@ -26,11 +33,15 @@ figure
 data_samples
 dataset_h5
 dataset_h5_ant_running
+dataset_h5_ant_running_ppo
 scaling_dataset_h5_30env
 Trajworld_data
 Trajworld
 pre_trained
 trajworld_ckpt
 CTFM
+
+Ant/renders
+Ant/ppo_checkpoints
 
 cuda-keyring_1.1-1_all.deb

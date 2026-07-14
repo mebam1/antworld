@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1.7
 FROM nvidia/cuda:12.8.0-devel-ubuntu22.04
 
 ARG DEBIAN_FRONTEND=noninteractive
@@ -40,7 +41,8 @@ RUN mkdir -p \
     "${WESTWORLD_EXTERNAL_ROOT}/conda_pkgs" \
     "${WESTWORLD_EXTERNAL_ROOT}/wandb"
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends \
     bash \
     bzip2 \
     ca-certificates \
@@ -62,21 +64,32 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
     && rm -rf /var/lib/apt/lists/*
 
-RUN curl -fsSL -o /tmp/miniforge.sh https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-x86_64.sh \
-    && bash /tmp/miniforge.sh -b -p "${CONDA_DIR}" \
-    && rm /tmp/miniforge.sh \
+RUN --mount=type=cache,target=/opt/westworld-external/cache/curl,sharing=locked \
+    if [ ! -s /opt/westworld-external/cache/curl/miniforge.sh ]; then \
+      curl -fsSL -o /opt/westworld-external/cache/curl/miniforge.sh https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-x86_64.sh; \
+    fi \
+    && bash /opt/westworld-external/cache/curl/miniforge.sh -b -p "${CONDA_DIR}" \
     && conda config --system --set auto_update_conda false \
     && (conda config --system --remove-key channels || true) \
     && conda config --system --add channels conda-forge \
     && conda config --system --set channel_priority flexible
 
 WORKDIR /workspace/WestWorld
-COPY . .
 
-RUN bash setup_env.bash "${WESTWORLD_EXTERNAL_ROOT}" "${ENV_NAME}" \
-    && conda clean -afy \
-    && find "${WESTWORLD_EXTERNAL_ROOT}" -type f -name '*.tar.bz2' -delete \
-    && find "${WESTWORLD_EXTERNAL_ROOT}" -type f -name '*.conda' -delete
+# Keep the expensive dependency layer independent from the main project source.
+# Changes outside setup_env/mjrl/mjmpc will reuse this layer.
+COPY setup_env.bash setup_env.sh ./
+COPY mjrl ./mjrl
+COPY mjmpc ./mjmpc
+
+RUN --mount=type=cache,target=/opt/westworld-external/conda_pkgs,sharing=locked \
+    --mount=type=cache,target=/opt/westworld-external/cache/pip,sharing=locked \
+    --mount=type=cache,target=/opt/westworld-external/cache/uv,sharing=locked \
+    --mount=type=cache,target=/opt/westworld-external/cache/torch_extensions,sharing=locked \
+    --mount=type=cache,target=/opt/westworld-external/tmp,sharing=locked \
+    bash setup_env.bash "${WESTWORLD_EXTERNAL_ROOT}" "${ENV_NAME}"
+
+COPY . .
 
 RUN mkdir -p outputs nohup figure pre_trained Trajworld_data dataset_h5 dataset_h5_ant_running wandb
 
