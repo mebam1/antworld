@@ -141,3 +141,21 @@ If EGL is unavailable in the container, try software rendering:
 ```bash
 MUJOCO_GL=osmesa python Ant/render_ant_episode.py --episode-index 0
 ```
+
+Render the PPO ground-truth trajectory and a WestWorld predicted trajectory side
+by side:
+
+```bash
+python Ant/render_westworld_prediction.py \
+  --ckpt ./CTFM/Ant-Running-WestWorld/checkpoints/last.ckpt \
+  --episodes Trajworld_data/UniTraj_pt/ant_running_pt/ant_running_ppo \
+  --episode-index 0 \
+  --out Ant/renders/westworld_vs_gt.mp4 \
+  --width 640 \
+  --height 480
+```
+
+WestWorld predicts the Ant observation channels, not root x/y position. The
+renderer reconstructs predicted root x/y by integrating predicted linear
+velocity from the GT prefix boundary. For a shape-only comparison at the GT
+position, pass `--xy-mode gt`.
