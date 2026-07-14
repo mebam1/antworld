@@ -116,6 +116,37 @@ python train.py --config-name config_ant_running \
   data.test_h5_dir=./dataset_h5_ant_running_ppo
 ```
 
+## PPO in WestWorld Simulation
+
+To train a new PPO policy from scratch using WestWorld as the transition
+simulator:
+
+```bash
+python Ant/ppo_train_westworld_env.py \
+  --ckpt ./CTFM/Ant-Running-WestWorld/checkpoints/last.ckpt \
+  --stats Trajworld_data/UniTraj_pt/ant_running_pt/ant_running_ppo/minmax_ant_running_ppo.pt \
+  --total-updates 100 \
+  --rollout-steps 1024
+```
+
+This script uses the real MuJoCo Ant environment only for reset states. After
+reset, PPO actions are applied to the frozen WestWorld model:
+
+```text
+current observation + PPO action -> WestWorld -> next observation
+```
+
+The current WestWorld Mamba kernels require a CUDA-enabled environment. The
+normalization statistics passed with `--stats` should come from the dataset used
+to train the selected WestWorld checkpoint.
+
+Rewards and termination are computed from the WestWorld-predicted next
+observation. Policy checkpoints are written to:
+
+```text
+Ant/ppo_westworld_checkpoints/
+```
+
 ## 3D Rendering
 
 Render a PPO-collected episode to an MP4:

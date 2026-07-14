@@ -14,6 +14,21 @@ class BaseModel(pl.LightningModule):
         # List to store validation outputs for visualization.
         self.val_outputs = []
 
+    def _log_wandb_image(self, key, fig):
+        loggers = getattr(self, "loggers", None)
+        if loggers is None:
+            logger = getattr(self, "logger", None)
+            loggers = [logger] if logger is not None else []
+
+        for logger in loggers:
+            experiment = getattr(logger, "experiment", None)
+            if experiment is not None and hasattr(experiment, "log"):
+                experiment.log({key: wandb.Image(fig)}, step=self.global_step)
+                return
+
+        if wandb.run is not None:
+            wandb.log({key: wandb.Image(fig)}, step=self.global_step)
+
     def forward(self, batch):
         # Forward pass, to be implemented in the subclass.
         # Should return (prediction, loss).
@@ -21,9 +36,8 @@ class BaseModel(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         prediction, loss, _ = self.forward(batch)
-        # Log training loss using Lightning's logger.
-        self.log("train_loss", loss, on_step=False, on_epoch=True, prog_bar=True)
-        wandb.log({"train_step_loss": loss.item()}, step=self.global_step)
+        self.log("train_loss_step", loss, on_step=True, on_epoch=False, prog_bar=True, logger=True, sync_dist=True)
+        self.log("train_loss_epoch", loss, on_step=False, on_epoch=True, prog_bar=False, logger=True, sync_dist=True)
         return loss
 
     def validation_step(self, batch, batch_idx):
@@ -35,7 +49,7 @@ class BaseModel(pl.LightningModule):
         prediction, loss, mae = self.forward(batch)
         # For example, assume target is x[:, 1:, :]. Adjust if necessary.
         target = batch["obs"][:, 1:, :]
-        self.log("val_loss", mae, on_step=False, on_epoch=True, prog_bar=True)
+        self.log("val_loss", mae, on_step=False, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
         out = {"prediction": prediction.detach().cpu(), "target": target.detach().cpu()}
         self.val_outputs.append(out)
         return loss
@@ -84,9 +98,7 @@ class BaseModel(pl.LightningModule):
 
         axes[-1].set_xlabel("Time Step")
 
-        # Log the figure to wandb under a key that includes the epoch
-        current_epoch = self.current_epoch
-        wandb.log({f"val_timeseries_epoch": wandb.Image(fig)})
+        self._log_wandb_image("val_timeseries_epoch", fig)
 
         plt.close(fig)
 

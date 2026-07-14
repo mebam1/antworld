@@ -108,13 +108,58 @@ def backend_state(backend: AntBackend) -> Tuple[np.ndarray, np.ndarray]:
     return np.asarray(backend.data.qpos).copy(), np.asarray(backend.data.qvel).copy()
 
 
+def forward_backend(backend: AntBackend) -> None:
+    if backend.kind == "mujoco":
+        import mujoco  # type: ignore
+
+        mujoco.mj_forward(backend.model, backend.data)
+    else:
+        assert backend.sim is not None
+        backend.sim.forward()
+
+
+def clamp_backend_joint_angles(backend: AntBackend) -> int:
+    """Clamp limited scalar joint qpos values to the compiled MuJoCo ranges."""
+    model = backend.model
+    qpos = np.asarray(backend.data.qpos)
+    jnt_limited = np.asarray(getattr(model, "jnt_limited", []))
+    jnt_range = np.asarray(getattr(model, "jnt_range", []), dtype=np.float64)
+    jnt_qposadr = np.asarray(getattr(model, "jnt_qposadr", []), dtype=np.int64)
+    if jnt_limited.size == 0 or jnt_range.size == 0 or jnt_qposadr.size == 0:
+        return 0
+
+    clipped = 0
+    joint_count = min(jnt_limited.shape[0], jnt_range.shape[0], jnt_qposadr.shape[0])
+    for joint_idx in range(joint_count):
+        if not bool(jnt_limited[joint_idx]):
+            continue
+        adr = int(jnt_qposadr[joint_idx])
+        if adr < 0 or adr >= qpos.shape[0]:
+            continue
+        lo, hi = float(jnt_range[joint_idx, 0]), float(jnt_range[joint_idx, 1])
+        if not np.isfinite(lo) or not np.isfinite(hi) or hi <= lo:
+            continue
+        before = float(qpos[adr])
+        after = float(np.clip(before, lo, hi))
+        if after != before:
+            qpos[adr] = after
+            clipped += 1
+
+    if clipped:
+        forward_backend(backend)
+    return clipped
+
+
 def reset_backend(
     backend: AntBackend,
     rng: np.random.Generator,
     qpos_noise: float,
     qvel_noise: float,
+    clamp_joint_angles: bool,
 ) -> np.ndarray:
     backend.reset(rng, qpos_noise=qpos_noise, qvel_noise=qvel_noise)
+    if clamp_joint_angles:
+        clamp_backend_joint_angles(backend)
     return backend.obs()
 
 
@@ -128,6 +173,7 @@ def collect_ppo_rollout(
     max_episode_steps: int,
     qpos_noise: float,
     qvel_noise: float,
+    clamp_joint_angles: bool,
 ) -> Dict[str, torch.Tensor]:
     obs_buf = torch.zeros((rollout_steps, OBS_DIM), dtype=torch.float32, device=device)
     act_buf = torch.zeros((rollout_steps, ACT_DIM), dtype=torch.float32, device=device)
@@ -136,7 +182,7 @@ def collect_ppo_rollout(
     done_buf = torch.zeros(rollout_steps, dtype=torch.float32, device=device)
     val_buf = torch.zeros(rollout_steps, dtype=torch.float32, device=device)
 
-    obs = reset_backend(backend, rng, qpos_noise, qvel_noise)
+    obs = reset_backend(backend, rng, qpos_noise, qvel_noise, clamp_joint_angles)
     ep_step = 0
 
     for step in range(rollout_steps):
@@ -146,6 +192,8 @@ def collect_ppo_rollout(
 
         action_np = action_t.squeeze(0).cpu().numpy().astype(np.float32)
         backend.step(action_np)
+        if clamp_joint_angles:
+            clamp_backend_joint_angles(backend)
         next_obs = backend.obs()
         reward = ant_reward(next_obs)
         done = ant_done(next_obs, ep_step, max_episode_steps)
@@ -159,7 +207,7 @@ def collect_ppo_rollout(
 
         ep_step += 1
         if done:
-            obs = reset_backend(backend, rng, qpos_noise, qvel_noise)
+            obs = reset_backend(backend, rng, qpos_noise, qvel_noise, clamp_joint_angles)
             ep_step = 0
         else:
             obs = next_obs
@@ -285,8 +333,9 @@ def rollout_policy_episode(
     qvel_noise: float,
     deterministic: bool,
     policy_update: int,
+    clamp_joint_angles: bool,
 ) -> dict:
-    obs = reset_backend(backend, rng, qpos_noise, qvel_noise)
+    obs = reset_backend(backend, rng, qpos_noise, qvel_noise, clamp_joint_angles)
     obs_list: List[np.ndarray] = []
     act_list: List[np.ndarray] = []
     rew_list: List[float] = []
@@ -301,6 +350,8 @@ def rollout_policy_episode(
         action = action_t.squeeze(0).cpu().numpy().astype(np.float32)
 
         backend.step(action)
+        if clamp_joint_angles:
+            clamp_backend_joint_angles(backend)
         obs_after = backend.obs()
         reward = ant_reward(obs_after)
 
@@ -359,6 +410,7 @@ def collect_snapshot(
     qpos_noise: float,
     qvel_noise: float,
     deterministic: bool,
+    clamp_joint_angles: bool,
 ) -> List[dict]:
     collected = []
     returns = []
@@ -374,6 +426,7 @@ def collect_snapshot(
             qvel_noise=qvel_noise,
             deterministic=deterministic,
             policy_update=update_idx,
+            clamp_joint_angles=clamp_joint_angles,
         )
         collected.append(ep)
         returns.append(float(ep["reward"].sum().item()))
@@ -413,6 +466,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--deterministic-collection", action="store_true", help="Use mean action during snapshot collection.")
     parser.add_argument("--qpos-noise", type=float, default=0.05)
     parser.add_argument("--qvel-noise", type=float, default=0.05)
+    parser.add_argument(
+        "--no-joint-angle-clamp",
+        action="store_true",
+        help="Disable explicit clamping of limited MuJoCo joint angles after reset/step.",
+    )
     parser.add_argument("--chunk-size", type=int, default=1000)
     parser.add_argument("--no-normalize", action="store_true", help="Save raw obs/actions/rewards.")
     return parser.parse_args()
@@ -434,6 +492,8 @@ def main() -> None:
     backend = AntBackend.load(args.xml.resolve())
     if backend.nu != ACT_DIM:
         raise RuntimeError(f"Expected {ACT_DIM} actuators, got {backend.nu}")
+    clamp_joint_angles = not args.no_joint_angle_clamp
+    print(f"[joint angle clamp] enabled={clamp_joint_angles}")
 
     model = ActorCritic(OBS_DIM, ACT_DIM, hidden_size=args.hidden_size, layers=args.layers).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, eps=1e-5)
@@ -454,6 +514,7 @@ def main() -> None:
                 qpos_noise=args.qpos_noise,
                 qvel_noise=args.qvel_noise,
                 deterministic=args.deterministic_collection,
+                clamp_joint_angles=clamp_joint_angles,
             )
         )
 
@@ -467,6 +528,7 @@ def main() -> None:
             max_episode_steps=args.max_steps,
             qpos_noise=args.qpos_noise,
             qvel_noise=args.qvel_noise,
+            clamp_joint_angles=clamp_joint_angles,
         )
         losses = ppo_update(
             model,
@@ -515,6 +577,7 @@ def main() -> None:
                     qpos_noise=args.qpos_noise,
                     qvel_noise=args.qvel_noise,
                     deterministic=args.deterministic_collection,
+                    clamp_joint_angles=clamp_joint_angles,
                 )
             )
 

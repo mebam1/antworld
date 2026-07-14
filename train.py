@@ -1,16 +1,15 @@
 import pytorch_lightning as pl
 import torch
 import torch.nn as nn
-from pytorch_lightning.loggers import WandbLogger
+from pytorch_lightning.loggers import CSVLogger, WandbLogger
 from torch.utils.data import DataLoader, random_split
 from models import build_model
 from datasets import build_dataset
 from utils.utils import set_seed, find_latest_checkpoint
-from pytorch_lightning.callbacks import ModelCheckpoint
+from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
 import hydra
 from omegaconf import OmegaConf
 import os
-import wandb
 import numpy as np
 from pytorch_lightning.strategies import DDPStrategy
 from torch.utils.data import Subset
@@ -57,10 +56,15 @@ def train(cfg):
     train_batch_size = cfg.method['train_batch_size'] 
     eval_batch_size = cfg.method['eval_batch_size']
 
+    log_root = os.path.join('CTFM', cfg.exp_name)
+    checkpoint_dir = os.path.join(log_root, 'checkpoints')
+    os.makedirs(checkpoint_dir, exist_ok=True)
+
     call_backs = []
 
     checkpoint_callback = ModelCheckpoint(
         monitor='val_loss',  # Replace with your validation metric
+        dirpath=checkpoint_dir,
         filename=f'{cfg.model_name}-' + '{epoch}-{val_loss:.6f}',
         save_top_k=10,
         mode='min',  # 'min' for loss/error, 'max' for accuracy
@@ -68,6 +72,7 @@ def train(cfg):
     )
 
     call_backs.append(checkpoint_callback)
+    call_backs.append(LearningRateMonitor(logging_interval='step'))
 
     train_loader = DataLoader(
         train_set, batch_size=train_batch_size, num_workers=cfg.load_num_workers, shuffle=True, drop_last=False,
@@ -78,12 +83,27 @@ def train(cfg):
         collate_fn=train_set.collate_fn)
     
 
-    run = wandb.init(project="Trajworld", name=cfg.exp_name)
-    wandb_logger = WandbLogger(project="Trajworld", name=cfg.exp_name+str(cfg.seed), id=cfg.exp_name+str(cfg.seed))
+    wandb_mode = str(os.environ.get("WANDB_MODE") or getattr(cfg, "wandb_mode", "online")).lower()
+    os.environ["WANDB_MODE"] = wandb_mode
+    wandb_dir = os.environ.get("WANDB_DIR") or os.path.join(log_root, "wandb")
+    os.makedirs(wandb_dir, exist_ok=True)
+
+    wandb_project = str(getattr(cfg, "wandb_project", "Trajworld"))
+    run_name = f"{cfg.exp_name}-seed{cfg.seed}"
+    run_id = run_name.replace(" ", "-")
+    wandb_logger = WandbLogger(
+        project=wandb_project,
+        name=run_name,
+        id=run_id,
+        resume="allow",
+        save_dir=wandb_dir,
+        offline=(wandb_mode == "offline"),
+    )
+    csv_logger = CSVLogger(save_dir=log_root, name="csv_logs")
 
     # automatically resume training
     if cfg.ckpt_path is None:
-        cfg.ckpt_path = find_latest_checkpoint(os.path.join('CTFM', cfg.exp_name, 'checkpoints'))
+        cfg.ckpt_path = find_latest_checkpoint(checkpoint_dir)
     
     # Compute the target absolute training step count when resuming.
     extra_steps = int(getattr(cfg.method, "resume_extra_steps", 100))  # Train for 100 additional steps
@@ -98,18 +118,23 @@ def train(cfg):
         max_epochs=max_epochs,
         max_steps=target_steps,
         val_check_interval=val_check_interval,  # e.g. 1000 means running validation every 1000 optimizer steps
-        logger=wandb_logger,
+        logger=[wandb_logger, csv_logger],
+        default_root_dir=log_root,
         devices=cfg.devices,
         accelerator="gpu",
         profiler="simple",
         strategy=DDPStrategy(find_unused_parameters=True),
         callbacks=call_backs,
+        log_every_n_steps=int(getattr(cfg, "log_every_n_steps", 1)),
         gradient_clip_val=0.25,                
         gradient_clip_algorithm="norm", 
         accumulate_grad_batches=cfg.method.get('accumulate_grad_batches', 4),  # Number of gradient accumulation steps
         precision="16-mixed"  # Use mixed-precision training (16-bit floating point) for memory efficiency
     )
-    print(trainer.logger)
+    print(f"[logging] wandb mode: {wandb_mode}")
+    print(f"[logging] wandb dir: {wandb_dir}")
+    print(f"[logging] csv metrics: {os.path.join(csv_logger.log_dir, 'metrics.csv')}")
+    print(f"[checkpoint] dir: {checkpoint_dir}")
     if cfg.ckpt_path is not None:
         state = torch.load(cfg.ckpt_path, map_location="cpu")
         sd = state.get("state_dict", state)

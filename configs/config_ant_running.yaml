@@ -9,6 +9,9 @@ ckpt_path: './pre_trained/westworld.ckpt'
 seed: 43
 devices: [0]
 use_kd: False
+wandb_project: 'Trajworld'
+wandb_mode: 'online'
+log_every_n_steps: 1
 
 # data loading
 load_num_workers: 4
