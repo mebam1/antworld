@@ -124,7 +124,9 @@ Render a PPO-collected episode to an MP4:
 python Ant/render_ant_episode.py \
   --episodes Trajworld_data/UniTraj_pt/ant_running_pt/ant_running_ppo \
   --episode-index 0 \
-  --out Ant/renders/ant_episode.mp4
+  --out Ant/renders/ant_episode.mp4 \
+  --width 640 \
+  --height 480
 ```
 
 On headless servers, set MuJoCo rendering variables if needed:
@@ -132,4 +134,10 @@ On headless servers, set MuJoCo rendering variables if needed:
 ```bash
 export MUJOCO_GL=egl
 python Ant/render_ant_episode.py --episode-index 0
+```
+
+If EGL is unavailable in the container, try software rendering:
+
+```bash
+MUJOCO_GL=osmesa python Ant/render_ant_episode.py --episode-index 0
 ```

@@ -59,6 +59,8 @@ def render_with_mujoco(
     import mujoco  # type: ignore
 
     model = mujoco.MjModel.from_xml_path(str(xml_path))
+    model.vis.global_.offwidth = max(int(model.vis.global_.offwidth), int(width))
+    model.vis.global_.offheight = max(int(model.vis.global_.offheight), int(height))
     data = mujoco.MjData(model)
     renderer = mujoco.Renderer(model, height=height, width=width)
     frames: List[np.ndarray] = []
@@ -103,44 +105,13 @@ def render_with_mujoco_py(
     return frames
 
 
-def render_episode(
-    xml_path: Path,
-    episode: dict,
-    *,
-    width: int,
-    height: int,
-    camera: str | None,
-    stride: int,
-    max_frames: int | None,
-) -> List[np.ndarray]:
+def episode_states(episode: dict, stride: int, max_frames: int | None) -> tuple[np.ndarray, np.ndarray]:
     qpos = episode["qpos"].detach().cpu().numpy()
     qvel = episode["qvel"].detach().cpu().numpy()
     if max_frames is not None:
         qpos = qpos[: max_frames * stride]
         qvel = qvel[: max_frames * stride]
-
-    try:
-        return render_with_mujoco(
-            xml_path,
-            qpos,
-            qvel,
-            width=width,
-            height=height,
-            camera=camera,
-            stride=stride,
-        )
-    except Exception as mujoco_error:
-        print(f"[warn] mujoco renderer failed: {mujoco_error}")
-        print("[warn] falling back to mujoco_py renderer")
-        return render_with_mujoco_py(
-            xml_path,
-            qpos,
-            qvel,
-            width=width,
-            height=height,
-            camera=camera,
-            stride=stride,
-        )
+    return qpos, qvel
 
 
 def parse_args() -> argparse.Namespace:
@@ -149,12 +120,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--episode-index", type=int, default=0)
     parser.add_argument("--xml", type=Path, default=DEFAULT_XML)
     parser.add_argument("--out", type=Path, default=SCRIPT_DIR / "renders" / "ant_episode.mp4")
-    parser.add_argument("--width", type=int, default=1280)
-    parser.add_argument("--height", type=int, default=720)
+    parser.add_argument("--width", type=int, default=640)
+    parser.add_argument("--height", type=int, default=480)
     parser.add_argument("--fps", type=int, default=30)
     parser.add_argument("--camera", default="track", help="MuJoCo camera name. Use empty string for default camera.")
     parser.add_argument("--stride", type=int, default=2, help="Render every Nth saved state.")
     parser.add_argument("--max-frames", type=int, default=None)
+    parser.add_argument(
+        "--allow-mujoco-py-fallback",
+        action="store_true",
+        help="Try legacy mujoco_py rendering if mujoco.Renderer fails.",
+    )
     return parser.parse_args()
 
 
@@ -163,17 +139,38 @@ def main() -> None:
     episode_file = find_episode_file(args.episodes)
     camera = args.camera if args.camera else None
     episode = load_episode(episode_file, args.episode_index)
+    stride = max(1, args.stride)
+    qpos, qvel = episode_states(episode, stride=stride, max_frames=args.max_frames)
 
     print(f"[load] {episode_file} episode={args.episode_index}")
-    frames = render_episode(
-        args.xml.resolve(),
-        episode,
-        width=args.width,
-        height=args.height,
-        camera=camera,
-        stride=max(1, args.stride),
-        max_frames=args.max_frames,
-    )
+    try:
+        frames = render_with_mujoco(
+            args.xml.resolve(),
+            qpos,
+            qvel,
+            width=args.width,
+            height=args.height,
+            camera=camera,
+            stride=stride,
+        )
+    except Exception as mujoco_error:
+        if not args.allow_mujoco_py_fallback:
+            print(f"[error] mujoco renderer failed: {mujoco_error}")
+            print("[hint] Try a smaller frame size, for example --width 640 --height 480.")
+            print("[hint] On headless servers, try MUJOCO_GL=egl or MUJOCO_GL=osmesa.")
+            print("[hint] Legacy mujoco_py fallback is disabled by default; enable it with --allow-mujoco-py-fallback.")
+            raise
+        print(f"[warn] mujoco renderer failed: {mujoco_error}")
+        print("[warn] falling back to mujoco_py renderer")
+        frames = render_with_mujoco_py(
+            args.xml.resolve(),
+            qpos,
+            qvel,
+            width=args.width,
+            height=args.height,
+            camera=camera,
+            stride=stride,
+        )
     if not frames:
         raise RuntimeError("No frames rendered.")
 
