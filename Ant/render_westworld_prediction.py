@@ -47,6 +47,30 @@ from ppo_collect_ant_data import (  # noqa: E402
 PPO_DEFAULT_OUT = DEFAULT_OUT.parent / "ant_running_ppo"
 
 
+def resolve_repo_path(path: Path | str) -> Path:
+    """Resolve a user path from the repository root without adding `Ant/`."""
+    resolved = Path(path).expanduser()
+    if not resolved.is_absolute():
+        resolved = REPO_ROOT / resolved
+    return resolved.resolve()
+
+
+def resolve_checkpoint_file(path: Path | str) -> Path:
+    resolved = resolve_repo_path(path)
+    if resolved.is_file():
+        return resolved
+    if not resolved.is_dir():
+        raise FileNotFoundError(resolved)
+
+    last = resolved / "last.ckpt"
+    if last.is_file():
+        return last
+    candidates = sorted(resolved.glob("*.ckpt"), key=lambda p: p.stat().st_mtime, reverse=True)
+    if not candidates:
+        raise FileNotFoundError(f"No *.ckpt found under {resolved}")
+    return candidates[0]
+
+
 def find_episode_file(root: Path) -> Path:
     if root.is_file():
         return root
@@ -97,7 +121,7 @@ def load_cfg(config_name: str, overrides: List[str]):
     return cfg
 
 
-def load_model(cfg, ckpt_path: str | None, device: torch.device):
+def load_model(cfg, ckpt_path: Path | str | None, device: torch.device):
     from models import build_model
 
     if cfg.method.get("mamba_cfg", None) is not None:
@@ -109,8 +133,7 @@ def load_model(cfg, ckpt_path: str | None, device: torch.device):
     ckpt = ckpt_path or cfg.get("ckpt_path", None)
     if not ckpt:
         raise ValueError("No checkpoint path supplied. Use --ckpt or set ckpt_path in the config.")
-    if not os.path.exists(ckpt):
-        raise FileNotFoundError(ckpt)
+    ckpt = resolve_checkpoint_file(ckpt)
 
     state = torch.load(ckpt, map_location=device)
     state_dict = state.get("state_dict", state)
@@ -336,14 +359,14 @@ def combine_frames(gt_frames: List[np.ndarray], pred_frames: List[np.ndarray]) -
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Render PPO GT trajectory and WestWorld prediction side by side.")
     parser.add_argument("--config-name", default="config_ant_running")
-    parser.add_argument("--ckpt", default=None, help="WestWorld checkpoint path. Defaults to config ckpt_path.")
-    parser.add_argument("--ppo-ckpt", type=Path, default=None, help="PPO checkpoint to roll out in MuJoCo before comparison.")
-    parser.add_argument("--episodes", type=Path, default=PPO_DEFAULT_OUT, help="Fallback PPO episodes file/directory when --ppo-ckpt is omitted.")
+    parser.add_argument("--ckpt", type=Path, default=None, help="WestWorld checkpoint file/directory, relative to the repository root.")
+    parser.add_argument("--ppo-ckpt", type=Path, default=None, help="PPO checkpoint, relative to the repository root.")
+    parser.add_argument("--episodes", type=Path, default=PPO_DEFAULT_OUT, help="Fallback PPO episodes path, relative to the repository root.")
     parser.add_argument("--episode-index", type=int, default=0)
-    parser.add_argument("--stats", type=Path, default=None, help="minmax_*.pt for denormalizing WestWorld predictions.")
+    parser.add_argument("--stats", type=Path, default=None, help="minmax_*.pt path, relative to the repository root.")
     parser.add_argument("--input-raw", action="store_true", help="Set if the episode obs/action are raw, not normalized.")
-    parser.add_argument("--xml", type=Path, default=DEFAULT_XML)
-    parser.add_argument("--out", type=Path, default=SCRIPT_DIR / "renders" / "westworld_vs_gt.mp4")
+    parser.add_argument("--xml", type=Path, default=DEFAULT_XML, help="MuJoCo XML path, relative to the repository root.")
+    parser.add_argument("--out", type=Path, default=SCRIPT_DIR / "renders" / "westworld_vs_gt.mp4", help="Output path, relative to the repository root.")
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--seed", type=int, default=43, help="MuJoCo reset and stochastic-policy seed.")
     parser.add_argument("--rollout-steps", type=int, default=None, help="PPO rollout horizon; defaults to checkpoint max_steps or 500.")
@@ -364,6 +387,15 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    args.xml = resolve_repo_path(args.xml)
+    args.out = resolve_repo_path(args.out)
+    if args.ppo_ckpt is not None:
+        args.ppo_ckpt = resolve_repo_path(args.ppo_ckpt)
+    if args.stats is not None:
+        args.stats = resolve_repo_path(args.stats)
+    if args.episodes is not None:
+        args.episodes = resolve_repo_path(args.episodes)
+
     device = torch.device(args.device)
     episode_file = None if args.ppo_ckpt is not None else find_episode_file(args.episodes)
     stats_file = find_stats_file(episode_file, args.stats)
