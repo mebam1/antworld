@@ -15,7 +15,7 @@ services:
     runtime: nvidia
     environment:
       WANDB_MODE: online
-      NVIDIA_VISIBLE_DEVICES: "1"
+      NVIDIA_VISIBLE_DEVICES: "1,2"
       NVIDIA_DRIVER_CAPABILITIES: compute,utility,graphics
     volumes:
       - ./Trajworld_data:/workspace/WestWorld/Trajworld_data

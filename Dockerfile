@@ -25,7 +25,7 @@ ENV CONDA_DIR=${CONDA_DIR} \
     CUDA_HOME=/usr/local/cuda \
     FORCE_CUDA=1 \
     TORCH_CUDA_ARCH_LIST=12.0 \
-    NVIDIA_VISIBLE_DEVICES=1 \
+    NVIDIA_VISIBLE_DEVICES=1,2 \
     NVIDIA_DRIVER_CAPABILITIES=compute,utility,graphics
 
 SHELL ["/bin/bash", "-lc"]
