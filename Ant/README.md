@@ -179,12 +179,20 @@ by side:
 ```bash
 python Ant/render_westworld_prediction.py \
   --ckpt ./CTFM/Ant-Running-WestWorld/checkpoints/last.ckpt \
-  --episodes Trajworld_data/UniTraj_pt/ant_running_pt/ant_running_ppo \
-  --episode-index 0 \
+  --ppo-ckpt Ant/ppo_westworld_checkpoints/ppo_westworld_ant_update_0100.pt \
+  --stats Trajworld_data/UniTraj_pt/ant_running_pt/ant_running_ppo/minmax_ant_running_ppo.pt \
   --out Ant/renders/westworld_vs_gt.mp4 \
   --width 640 \
   --height 480
 ```
+
+With `--ppo-ckpt`, the script first runs that policy in the real MuJoCo Ant
+environment. This fresh rollout becomes the GT trajectory and its action sequence
+is passed to WestWorld for the side-by-side prediction. The rollout is
+deterministic by default; pass `--ppo-stochastic` to sample policy actions.
+
+The previous `--episodes ... --episode-index ...` input remains available when
+rendering an already collected PPO episode.
 
 WestWorld predicts the Ant observation channels, not root x/y position. The
 renderer reconstructs predicted root x/y by integrating predicted linear

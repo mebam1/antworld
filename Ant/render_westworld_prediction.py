@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Render GT Ant trajectory and WestWorld prediction side by side.
+"""Render a real Ant PPO rollout and WestWorld prediction side by side.
 
-This script expects PPO-collected episodes from Ant/ppo_collect_ant_data.py.
-Those episodes contain both WestWorld training tensors (obs/action/task) and raw
-MuJoCo states (qpos/qvel). WestWorld predicts observation channels, so the
-predicted render reconstructs qpos/qvel from the predicted Ant observation.
+The GT trajectory can either be loaded from a previously collected episode or
+generated on demand by running a saved PPO policy in the real MuJoCo model.
+WestWorld predicts observation channels, so the predicted render reconstructs
+qpos/qvel from the predicted Ant observation.
 Root x/y is not an observation channel; by default it is integrated from the
 predicted linear velocity starting at the GT prefix boundary.
 """
@@ -30,7 +30,18 @@ if str(REPO_ROOT) not in sys.path:
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-from generate_ant_data import DEFAULT_OUT, DEFAULT_XML, OBS_DIM, ACT_DIM  # noqa: E402
+from generate_ant_data import (  # noqa: E402
+    ACT_DIM,
+    DEFAULT_OUT,
+    DEFAULT_XML,
+    OBS_DIM,
+    AntBackend,
+)
+from ppo_collect_ant_data import (  # noqa: E402
+    ActorCritic,
+    clamp_backend_joint_angles,
+    rollout_policy_episode,
+)
 
 
 PPO_DEFAULT_OUT = DEFAULT_OUT.parent / "ant_running_ppo"
@@ -45,14 +56,21 @@ def find_episode_file(root: Path) -> Path:
     return files[0]
 
 
-def find_stats_file(episodes_path: Path, explicit: Path | None) -> Path:
+def find_stats_file(episodes_path: Path | None, explicit: Path | None) -> Path:
     if explicit is not None:
+        if not explicit.is_file():
+            raise FileNotFoundError(explicit)
         return explicit
-    root = episodes_path.parent if episodes_path.is_file() else episodes_path
-    files = sorted(root.glob("minmax_*.pt"))
-    if not files:
-        raise FileNotFoundError(f"No minmax_*.pt found under {root}; pass --stats explicitly.")
-    return files[0]
+
+    roots = []
+    if episodes_path is not None:
+        roots.append(episodes_path.parent if episodes_path.is_file() else episodes_path)
+    roots.extend([PPO_DEFAULT_OUT, DEFAULT_OUT])
+    for root in roots:
+        files = sorted(root.glob("minmax_*.pt"))
+        if files:
+            return files[0]
+    raise FileNotFoundError("No minmax_*.pt found; pass --stats explicitly.")
 
 
 def load_episode(path: Path, episode_index: int) -> dict:
@@ -82,6 +100,9 @@ def load_cfg(config_name: str, overrides: List[str]):
 def load_model(cfg, ckpt_path: str | None, device: torch.device):
     from models import build_model
 
+    if cfg.method.get("mamba_cfg", None) is not None:
+        cfg.method.mamba_cfg.device = str(device)
+
     model = build_model(cfg).to(device)
     model.eval()
 
@@ -100,6 +121,65 @@ def load_model(cfg, ckpt_path: str | None, device: torch.device):
         print(f"[load ckpt] unexpected keys: {len(unexpected)}")
     print(f"[load ckpt] {ckpt}")
     return model
+
+
+def rollout_ppo_checkpoint(
+    checkpoint_path: Path,
+    *,
+    xml_path: Path,
+    device: torch.device,
+    seed: int,
+    max_steps: int | None,
+    qpos_noise: float | None,
+    qvel_noise: float | None,
+    stochastic: bool,
+    clamp_joint_angles: bool,
+) -> dict:
+    """Load a PPO checkpoint and collect one raw GT rollout in MuJoCo."""
+    if not checkpoint_path.is_file():
+        raise FileNotFoundError(checkpoint_path)
+
+    checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
+    if "model_state_dict" not in checkpoint:
+        raise KeyError(f"{checkpoint_path} does not contain model_state_dict")
+    saved_args = checkpoint.get("args", {})
+    hidden_size = int(saved_args.get("hidden_size", 256))
+    layers = int(saved_args.get("layers", 2))
+    rollout_steps = int(max_steps if max_steps is not None else saved_args.get("max_steps", 500))
+    reset_qpos_noise = float(qpos_noise if qpos_noise is not None else saved_args.get("qpos_noise", 0.05))
+    reset_qvel_noise = float(qvel_noise if qvel_noise is not None else saved_args.get("qvel_noise", 0.05))
+    if rollout_steps <= 1:
+        raise ValueError("--rollout-steps must be greater than 1")
+
+    policy = ActorCritic(OBS_DIM, ACT_DIM, hidden_size=hidden_size, layers=layers).to(device)
+    policy.load_state_dict(checkpoint["model_state_dict"])
+    policy.eval()
+
+    backend = AntBackend.load(xml_path)
+    if backend.nu != ACT_DIM:
+        raise RuntimeError(f"Expected {ACT_DIM} actuators, got {backend.nu}")
+    if clamp_joint_angles:
+        clamp_backend_joint_angles(backend)
+
+    rng = np.random.default_rng(seed)
+    update = int(checkpoint.get("update", -1))
+    episode = rollout_policy_episode(
+        backend,
+        policy,
+        rng,
+        device,
+        max_steps=rollout_steps,
+        qpos_noise=reset_qpos_noise,
+        qvel_noise=reset_qvel_noise,
+        deterministic=not stochastic,
+        policy_update=update,
+        clamp_joint_angles=clamp_joint_angles,
+    )
+    print(
+        f"[PPO rollout] ckpt={checkpoint_path} update={update} "
+        f"steps={episode['obs'].shape[0]} deterministic={not stochastic}"
+    )
+    return episode
 
 
 def normalize_tensor(x: torch.Tensor, mn: torch.Tensor, mx: torch.Tensor) -> torch.Tensor:
@@ -257,13 +337,20 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Render PPO GT trajectory and WestWorld prediction side by side.")
     parser.add_argument("--config-name", default="config_ant_running")
     parser.add_argument("--ckpt", default=None, help="WestWorld checkpoint path. Defaults to config ckpt_path.")
-    parser.add_argument("--episodes", type=Path, default=PPO_DEFAULT_OUT, help="PPO episodes_*.pt file or directory.")
+    parser.add_argument("--ppo-ckpt", type=Path, default=None, help="PPO checkpoint to roll out in MuJoCo before comparison.")
+    parser.add_argument("--episodes", type=Path, default=PPO_DEFAULT_OUT, help="Fallback PPO episodes file/directory when --ppo-ckpt is omitted.")
     parser.add_argument("--episode-index", type=int, default=0)
     parser.add_argument("--stats", type=Path, default=None, help="minmax_*.pt for denormalizing WestWorld predictions.")
     parser.add_argument("--input-raw", action="store_true", help="Set if the episode obs/action are raw, not normalized.")
     parser.add_argument("--xml", type=Path, default=DEFAULT_XML)
     parser.add_argument("--out", type=Path, default=SCRIPT_DIR / "renders" / "westworld_vs_gt.mp4")
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
+    parser.add_argument("--seed", type=int, default=43, help="MuJoCo reset and stochastic-policy seed.")
+    parser.add_argument("--rollout-steps", type=int, default=None, help="PPO rollout horizon; defaults to checkpoint max_steps or 500.")
+    parser.add_argument("--qpos-noise", type=float, default=None, help="Reset qpos noise; defaults to the PPO checkpoint value.")
+    parser.add_argument("--qvel-noise", type=float, default=None, help="Reset qvel noise; defaults to the PPO checkpoint value.")
+    parser.add_argument("--ppo-stochastic", action="store_true", help="Sample PPO actions instead of using the deterministic mean action.")
+    parser.add_argument("--no-joint-angle-clamp", action="store_true")
     parser.add_argument("--width", type=int, default=640)
     parser.add_argument("--height", type=int, default=480)
     parser.add_argument("--fps", type=int, default=30)
@@ -277,16 +364,32 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    episode_file = find_episode_file(args.episodes)
+    device = torch.device(args.device)
+    episode_file = None if args.ppo_ckpt is not None else find_episode_file(args.episodes)
     stats_file = find_stats_file(episode_file, args.stats)
-    episode = load_episode(episode_file, args.episode_index)
+    if args.ppo_ckpt is not None:
+        episode = rollout_ppo_checkpoint(
+            args.ppo_ckpt,
+            xml_path=args.xml.resolve(),
+            device=device,
+            seed=args.seed,
+            max_steps=args.rollout_steps,
+            qpos_noise=args.qpos_noise,
+            qvel_noise=args.qvel_noise,
+            stochastic=args.ppo_stochastic,
+            clamp_joint_angles=not args.no_joint_angle_clamp,
+        )
+        input_is_raw = True
+    else:
+        assert episode_file is not None
+        episode = load_episode(episode_file, args.episode_index)
+        input_is_raw = args.input_raw
     stats = torch.load(stats_file, map_location="cpu", weights_only=False)
 
     cfg = load_cfg(args.config_name, args.overrides)
-    device = torch.device(args.device)
     model = load_model(cfg, args.ckpt, device)
 
-    batch = make_batch(episode, stats, input_is_raw=args.input_raw, device=device)
+    batch = make_batch(episode, stats, input_is_raw=input_is_raw, device=device)
     pred_obs_raw = predict_obs_raw(model, batch, stats)
 
     total_steps = int(episode["obs"].shape[0])
@@ -312,7 +415,8 @@ def main() -> None:
         gt_qpos, gt_qvel = gt_qpos[:limit], gt_qvel[:limit]
         pred_qpos, pred_qvel = pred_qpos[:limit], pred_qvel[:limit]
 
-    print(f"[load episode] {episode_file} episode={args.episode_index}")
+    if episode_file is not None:
+        print(f"[load episode] {episode_file} episode={args.episode_index}")
     print(f"[load stats] {stats_file}")
     print(f"[render] prefix_t={prefix_t} frames={min(len(gt_qpos), len(pred_qpos))} xy_mode={args.xy_mode}")
 
