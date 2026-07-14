@@ -2,6 +2,8 @@
 
 Generate Ant Running episodes for task `131`.
 
+## Random / Smooth Baselines
+
 ```bash
 python Ant/generate_ant_data.py --episodes 1000 --policy smooth_random
 ```
@@ -58,4 +60,76 @@ For scratch training instead of finetuning from `pre_trained/westworld.ckpt`:
 
 ```bash
 python train.py --config-name config_ant_running ckpt_path=null
+```
+
+## PPO Policy Data
+
+To collect data from imperfect PPO policies during training:
+
+```bash
+python Ant/ppo_collect_ant_data.py \
+  --total-updates 30 \
+  --collect-interval 5 \
+  --episodes-per-snapshot 20 \
+  --prefix ant_running_ppo
+```
+
+The script trains a small PPO policy and periodically snapshots the current
+policy. The saved dataset therefore contains episodes from early, middle, and
+later imperfect policies instead of only a final converged controller.
+
+Outputs use the same WestWorld training keys:
+
+```python
+{
+    "obs": torch.FloatTensor,      # [T, 29]
+    "action": torch.FloatTensor,   # [T, 8]
+    "reward": torch.FloatTensor,   # [T]
+    "task": torch.LongTensor,      # [T], filled with 131
+}
+```
+
+PPO-collected episodes also include render-only fields:
+
+```python
+{
+    "qpos": torch.FloatTensor,          # [T, nq]
+    "qvel": torch.FloatTensor,          # [T, nv]
+    "policy_update": torch.LongTensor,  # [T]
+}
+```
+
+By default PPO data is saved separately under:
+
+```text
+Trajworld_data/UniTraj_pt/ant_running_pt/ant_running_ppo/
+```
+
+Those extra keys are ignored by the H5 converter, so they do not affect
+WestWorld training. To train only on PPO-collected data, use a separate H5 cache:
+
+```bash
+rm -rf dataset_h5_ant_running_ppo
+python train.py --config-name config_ant_running \
+  data.data_dir=./Trajworld_data/UniTraj_pt/ant_running_pt/ant_running_ppo \
+  data.h5_dir=./dataset_h5_ant_running_ppo \
+  data.test_h5_dir=./dataset_h5_ant_running_ppo
+```
+
+## 3D Rendering
+
+Render a PPO-collected episode to an MP4:
+
+```bash
+python Ant/render_ant_episode.py \
+  --episodes Trajworld_data/UniTraj_pt/ant_running_pt/ant_running_ppo \
+  --episode-index 0 \
+  --out Ant/renders/ant_episode.mp4
+```
+
+On headless servers, set MuJoCo rendering variables if needed:
+
+```bash
+export MUJOCO_GL=egl
+python Ant/render_ant_episode.py --episode-index 0
 ```
