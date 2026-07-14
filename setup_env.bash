@@ -332,7 +332,7 @@ pip_install torch==2.11.0 torchvision==0.26.0 torchaudio==2.11.0 \
 
 # 5) Gym / mujoco-py / d4rl 
 echo ">>> Installing gym, mujoco-py and friends"
-pip_install "Cython<3" "importlib-metadata<5.0" six cloudpickle numpy pyparsing pillow tqdm termcolor dm_control absl-py
+pip_install "Cython<3" "importlib-metadata<5.0" six cloudpickle numpy pyparsing pillow tqdm termcolor dm_control absl-py h5py
 pip_install "gym==0.23.1" "mujoco-py>=2.1,<2.2" "imageio[ffmpeg]" matplotlib
 pip_install tensordict --no-deps
 pip_install d4rl --no-deps
