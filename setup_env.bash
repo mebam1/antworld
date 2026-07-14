@@ -347,7 +347,7 @@ pip_install hydra-core omegaconf
 
 # 8) mamba-ssm (needs CUDA toolkit/nvcc matching the PyTorch CUDA build)
 echo ">>> Installing mamba-ssm 2.3.2.post1"
-pip_install ninja packaging wheel setuptools einops
+pip_install ninja packaging wheel setuptools einops huggingface_hub transformers safetensors
 pip_install "mamba-ssm==2.3.2.post1" --no-build-isolation --no-deps
 
 echo ">>> Verifying PyTorch package versions"
