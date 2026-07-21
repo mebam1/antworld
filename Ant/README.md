@@ -116,6 +116,73 @@ python train.py --config-name config_ant_running \
   data.test_h5_dir=./dataset_h5_ant_running_ppo
 ```
 
+## Full PPO to WestWorld Pipeline
+
+To run PPO data collection, render representative PPO rollouts, train
+WestWorld from scratch, and render a final PPO-vs-WestWorld comparison in one
+sequence:
+
+```bash
+python Ant/run_ant_westworld_pipeline.py \
+  --total-updates 1000000 \
+  --collect-interval 5 \
+  --episodes-per-snapshot 20 \
+  --prefix ant_running_ppo
+```
+
+The script runs these stages:
+
+```text
+1. Collect PPO snapshots with Ant/ppo_collect_ant_data.py
+2. Render PPO trajectories near 10%, 50%, and 100% of total updates
+3. Train WestWorld from scratch with train.py --config-name config_ant_running
+4. Render the final PPO rollout against the trained WestWorld prediction
+```
+
+By default, each run gets fresh output directories using a timestamped run name:
+
+```text
+Trajworld_data/UniTraj_pt/ant_running_pt/<run-name>/   # PPO episodes and minmax
+Ant/ppo_checkpoints/<run-name>/                        # PPO checkpoints
+dataset_h5_ant_running_ppo_<run-name>/                 # H5 cache
+CTFM/Ant-Running-WestWorld-<run-name>/                 # WestWorld checkpoints
+outputs/<run-name>/                                    # 10/50/100% PPO videos
+Ant/renders/<run-name>_westworld_vs_gt.mp4             # final comparison video
+```
+
+Use `--run-name` to make those paths stable:
+
+```bash
+python Ant/run_ant_westworld_pipeline.py \
+  --run-name ant-ppo-million-v1 \
+  --total-updates 1000000 \
+  --collect-interval 5 \
+  --episodes-per-snapshot 20
+```
+
+For a quick path check without starting training:
+
+```bash
+python Ant/run_ant_westworld_pipeline.py --dry-run --run-name test-run
+```
+
+The pipeline prevents accidental resume for the WestWorld scratch stage by
+using a fresh `exp_name` and H5 directory. If checkpoint files already exist for
+the selected `--train-exp-name`, the script fails before training.
+
+If any command fails, the error message is prefixed with the failing stage, for
+example:
+
+```text
+[Stage 3: Train WestWorld from scratch] failed: ...
+```
+
+Long PPO collection can produce a large dataset. `ppo_collect_ant_data.py`
+flushes collected snapshots to temporary raw chunks during collection, then
+writes normalized final chunks after `minmax_*.pt` is computed. Temporary raw
+chunks are deleted by default; pass `--keep-raw-chunks` directly to
+`ppo_collect_ant_data.py` when debugging that lower-level script.
+
 ## PPO in WestWorld Simulation
 
 To train a new PPO policy from scratch using WestWorld as the transition
