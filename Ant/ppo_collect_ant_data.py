@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import random
+import shutil
 import sys
 from pathlib import Path
 from typing import Dict, List, Sequence, Tuple
@@ -38,14 +39,109 @@ from generate_ant_data import (  # noqa: E402
     AntBackend,
     ant_done,
     ant_reward,
-    minmax_from_episodes,
-    save_chunks,
     save_stats,
     scale_01,
 )
 
 
 PPO_DEFAULT_OUT = DEFAULT_OUT.parent / "ant_running_ppo"
+
+
+class MinMaxAccumulator:
+    """Incrementally track normalization stats without keeping all episodes."""
+
+    def __init__(self) -> None:
+        self.obs_min: torch.Tensor | None = None
+        self.obs_max: torch.Tensor | None = None
+        self.action_min: torch.Tensor | None = None
+        self.action_max: torch.Tensor | None = None
+        self.reward_min: torch.Tensor | None = None
+        self.reward_max: torch.Tensor | None = None
+        self.episodes = 0
+        self.steps = 0
+
+    @staticmethod
+    def _update_min(cur: torch.Tensor | None, value: torch.Tensor) -> torch.Tensor:
+        value = value.detach().cpu()
+        return value if cur is None else torch.minimum(cur, value)
+
+    @staticmethod
+    def _update_max(cur: torch.Tensor | None, value: torch.Tensor) -> torch.Tensor:
+        value = value.detach().cpu()
+        return value if cur is None else torch.maximum(cur, value)
+
+    def update(self, episode: dict) -> None:
+        obs = episode["obs"].float()
+        action = episode["action"].float()
+        reward = episode["reward"].float().reshape(-1, 1)
+
+        self.obs_min = self._update_min(self.obs_min, obs.min(dim=0).values)
+        self.obs_max = self._update_max(self.obs_max, obs.max(dim=0).values)
+        self.action_min = self._update_min(self.action_min, action.min(dim=0).values)
+        self.action_max = self._update_max(self.action_max, action.max(dim=0).values)
+        self.reward_min = self._update_min(self.reward_min, reward.min(dim=0).values)
+        self.reward_max = self._update_max(self.reward_max, reward.max(dim=0).values)
+        self.episodes += 1
+        self.steps += int(obs.shape[0])
+
+    def state_dict(self) -> dict:
+        if self.episodes == 0:
+            raise RuntimeError("No episodes collected. Increase --total-updates or enable initial collection.")
+        assert self.obs_min is not None
+        assert self.obs_max is not None
+        assert self.action_min is not None
+        assert self.action_max is not None
+        assert self.reward_min is not None
+        assert self.reward_max is not None
+        return {
+            "obs_min": self.obs_min,
+            "obs_max": self.obs_max,
+            "action_min": self.action_min,
+            "action_max": self.action_max,
+            "reward_min": self.reward_min,
+            "reward_max": self.reward_max,
+        }
+
+
+class RawChunkWriter:
+    """Flush raw collected episodes to temporary chunks during long PPO runs."""
+
+    def __init__(self, raw_dir: Path, prefix: str, chunk_size: int, stats: MinMaxAccumulator) -> None:
+        if chunk_size <= 0:
+            raise ValueError("--chunk-size must be positive")
+        self.raw_dir = raw_dir
+        self.prefix = prefix
+        self.chunk_size = int(chunk_size)
+        self.stats = stats
+        self.buffer: List[dict] = []
+        self.chunk_idx = 1
+        self.raw_files: List[Path] = []
+
+        self.raw_dir.mkdir(parents=True, exist_ok=True)
+        for old in self.raw_dir.glob(f"raw_episodes_{self.prefix}_chunk*_E*.pt"):
+            old.unlink()
+
+    def add_many(self, episodes: Sequence[dict]) -> None:
+        for episode in episodes:
+            self.stats.update(episode)
+            self.buffer.append(episode)
+            if len(self.buffer) >= self.chunk_size:
+                self.flush()
+
+    def flush(self) -> None:
+        if not self.buffer:
+            return
+        chunk = self.buffer
+        self.buffer = []
+        path = self.raw_dir / f"raw_episodes_{self.prefix}_chunk{self.chunk_idx}_E{len(chunk)}.pt"
+        torch.save(chunk, path)
+        self.raw_files.append(path)
+        print(f"[flush raw] {path} ({len(chunk)} episodes)")
+        self.chunk_idx += 1
+
+    def close(self) -> list[Path]:
+        self.flush()
+        return list(self.raw_files)
 
 
 def atanh(x: torch.Tensor) -> torch.Tensor:
@@ -398,6 +494,46 @@ def normalize_episodes_preserve_extra(episodes: Sequence[dict], stats: dict) -> 
     return normalized
 
 
+def save_final_chunks_from_raw(
+    raw_files: Sequence[Path],
+    out_dir: Path,
+    *,
+    prefix: str,
+    chunk_size: int,
+    stats: dict,
+    normalize: bool,
+) -> None:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    for old in out_dir.glob(f"episodes_{prefix}_chunk*_E*.pt"):
+        old.unlink()
+
+    buffer: List[dict] = []
+    chunk_idx = 1
+
+    def flush_final() -> None:
+        nonlocal buffer, chunk_idx
+        if not buffer:
+            return
+        chunk = buffer[:chunk_size]
+        buffer = buffer[chunk_size:]
+        path = out_dir / f"episodes_{prefix}_chunk{chunk_idx}_E{len(chunk)}.pt"
+        torch.save(chunk, path)
+        print(f"[save] {path} ({len(chunk)} episodes)")
+        chunk_idx += 1
+
+    for raw_file in raw_files:
+        episodes = torch.load(raw_file, map_location="cpu", weights_only=False)
+        if not isinstance(episodes, list):
+            raise TypeError(f"Expected {raw_file} to contain a list of episodes, got {type(episodes)!r}")
+        if normalize:
+            episodes = normalize_episodes_preserve_extra(episodes, stats)
+        buffer.extend(episodes)
+        while len(buffer) >= chunk_size:
+            flush_final()
+
+    flush_final()
+
+
 def collect_snapshot(
     backend: AntBackend,
     model: ActorCritic,
@@ -472,6 +608,11 @@ def parse_args() -> argparse.Namespace:
         help="Disable explicit clamping of limited MuJoCo joint angles after reset/step.",
     )
     parser.add_argument("--chunk-size", type=int, default=1000)
+    parser.add_argument(
+        "--keep-raw-chunks",
+        action="store_true",
+        help="Keep temporary raw chunks used for streaming normalization.",
+    )
     parser.add_argument("--no-normalize", action="store_true", help="Save raw obs/actions/rewards.")
     return parser.parse_args()
 
@@ -498,11 +639,14 @@ def main() -> None:
     model = ActorCritic(OBS_DIM, ACT_DIM, hidden_size=args.hidden_size, layers=args.layers).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, eps=1e-5)
 
-    all_episodes: List[dict] = []
     args.policy_dir.mkdir(parents=True, exist_ok=True)
+    args.out_dir.mkdir(parents=True, exist_ok=True)
+    stats_acc = MinMaxAccumulator()
+    raw_dir = args.out_dir / f"_raw_{args.prefix}_chunks"
+    raw_writer = RawChunkWriter(raw_dir, args.prefix, args.chunk_size, stats_acc)
 
     if not args.no_collect_initial:
-        all_episodes.extend(
+        raw_writer.add_many(
             collect_snapshot(
                 backend,
                 model,
@@ -565,7 +709,7 @@ def main() -> None:
                 ckpt_path,
             )
             print(f"[save] {ckpt_path}")
-            all_episodes.extend(
+            raw_writer.add_many(
                 collect_snapshot(
                     backend,
                     model,
@@ -581,19 +725,23 @@ def main() -> None:
                 )
             )
 
-    if not all_episodes:
-        raise RuntimeError("No episodes collected. Increase --total-updates or enable initial collection.")
-
-    args.out_dir.mkdir(parents=True, exist_ok=True)
-    stats = minmax_from_episodes(all_episodes)
+    raw_files = raw_writer.close()
+    stats = stats_acc.state_dict()
     save_stats(stats, args.out_dir, args.prefix)
 
-    episodes_to_save = all_episodes if args.no_normalize else normalize_episodes_preserve_extra(all_episodes, stats)
-    save_chunks(episodes_to_save, args.out_dir, args.chunk_size, args.prefix)
-    total_steps = sum(int(ep["obs"].shape[0]) for ep in all_episodes)
+    save_final_chunks_from_raw(
+        raw_files,
+        args.out_dir,
+        prefix=args.prefix,
+        chunk_size=args.chunk_size,
+        stats=stats,
+        normalize=not args.no_normalize,
+    )
+    if not args.keep_raw_chunks:
+        shutil.rmtree(raw_dir, ignore_errors=True)
     print(
         "[done] "
-        f"episodes={len(all_episodes)} steps={total_steps} "
+        f"episodes={stats_acc.episodes} steps={stats_acc.steps} "
         f"normalized={not args.no_normalize} out_dir={args.out_dir}"
     )
 
