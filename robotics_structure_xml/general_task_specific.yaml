@@ -5180,6 +5180,7 @@ tasks:
     # [height(1), base quaternion(4), base linear velocity(3),
     #  base angular velocity(3), joint positions(8), joint velocities(8),
     #  up and heading projections(2)]
+    # Joint observation order follows MuJoCo qpos[7:15] / qvel[6:14].
     observations:
       - [height, 0, torso]            # h
 
@@ -5196,23 +5197,23 @@ tasks:
       - [v_ang, 0, torso]             # wy
       - [v_ang, 0, torso]             # wz
 
-      - [pos_jnt, 0, right_back_leg]  # hip_4
-      - [pos_jnt, 0, ankle_4]         # ankle_4
       - [pos_jnt, 0, front_left_leg]  # hip_1
       - [pos_jnt, 0, ankle_1]         # ankle_1
       - [pos_jnt, 0, front_right_leg] # hip_2
       - [pos_jnt, 0, ankle_2]         # ankle_2
       - [pos_jnt, 0, back_leg]        # hip_3
       - [pos_jnt, 0, ankle_3]         # ankle_3
+      - [pos_jnt, 0, right_back_leg]  # hip_4
+      - [pos_jnt, 0, ankle_4]         # ankle_4
 
-      - [v_jnt, 0, right_back_leg]    # hip_4 velocity
-      - [v_jnt, 0, ankle_4]           # ankle_4 velocity
       - [v_jnt, 0, front_left_leg]    # hip_1 velocity
       - [v_jnt, 0, ankle_1]           # ankle_1 velocity
       - [v_jnt, 0, front_right_leg]   # hip_2 velocity
       - [v_jnt, 0, ankle_2]           # ankle_2 velocity
       - [v_jnt, 0, back_leg]          # hip_3 velocity
       - [v_jnt, 0, ankle_3]           # ankle_3 velocity
+      - [v_jnt, 0, right_back_leg]    # hip_4 velocity
+      - [v_jnt, 0, ankle_4]           # ankle_4 velocity
 
       - [upright, 0, torso]           # p_up
       - [heading, 0, torso]           # p_heading
