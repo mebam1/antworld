@@ -7,8 +7,8 @@ exp_name: 'Ant-Running-WestWorld'
 ckpt_path: './pre_trained/westworld.ckpt'
 
 seed: 43
-# Host GPUs 1 and 2 are exposed by docker-compose and appear as cuda:0/1 here.
-devices: [0, 1]
+
+devices: [0, 1, 2, 3]
 use_kd: False
 wandb_project: 'Trajworld'
 wandb_mode: 'online'
