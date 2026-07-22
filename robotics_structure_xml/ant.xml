@@ -3,7 +3,7 @@
   <option timestep="0.01" integrator="RK4"/>
 
   <custom>
-    <numeric name="init_qpos" data="0.0 0.0 0.55 1.0 0.0 0.0 0.0 0.0 1.0 0.0 -1.0 0.0 -1.0 0.0 1.0"/>
+    <numeric name="init_qpos" data="0.0 0.0 0.55 1.0 0.0 0.0 0.0 0.0 1.0 0.0 1.0 0.0 -1.0 0.0 -1.0"/>
   </custom>
 
   <default>
@@ -34,7 +34,7 @@
         <joint axis="0 0 1" name="hip_2" pos="0 0 0" range="-30 30" type="hinge"/>
         <geom fromto="0.0 0.0 0.0 0.2 -0.2 0.0" name="front_right_leg_geom" size="0.08" type="capsule"/>
         <body name="ankle_2" pos="0.2 -0.2 0">
-          <joint axis="1 1 0" name="ankle_2" pos="0 0 0" range="-70 -30" type="hinge"/>
+          <joint axis="1 1 0" name="ankle_2" pos="0 0 0" range="30 70" type="hinge"/>
           <geom fromto="0.0 0.0 0.0 0.4 -0.4 0.0" name="ankle_2_geom" size="0.08" type="capsule"/>
         </body>
       </body>
@@ -52,7 +52,7 @@
         <joint axis="0 0 1" name="hip_4" pos="0 0 0" range="-30 30" type="hinge"/>
         <geom fromto="0.0 0.0 0.0 -0.2 -0.2 0.0" name="right_back_leg_geom" size="0.08" type="capsule"/>
         <body name="ankle_4" pos="-0.2 -0.2 0">
-          <joint axis="-1 1 0" name="ankle_4" pos="0 0 0" range="30 70" type="hinge"/>
+          <joint axis="-1 1 0" name="ankle_4" pos="0 0 0" range="-70 -30" type="hinge"/>
           <geom fromto="0.0 0.0 0.0 -0.4 -0.4 0.0" name="ankle_4_geom" size="0.08" type="capsule"/>
         </body>
       </body>

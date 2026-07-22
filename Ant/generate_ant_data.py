@@ -127,7 +127,7 @@ class AntBackend:
         init_qpos = np.zeros(self.nq, dtype=np.float64)
         if self.nq >= 15:
             init_qpos[:15] = np.array(
-                [0.0, 0.0, 0.55, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, -1.0, 0.0, -1.0, 0.0, 1.0],
+                [0.0, 0.0, 0.55, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 1.0, 0.0, -1.0, 0.0, -1.0],
                 dtype=np.float64,
             )
         init_qvel = np.zeros(self.nv, dtype=np.float64)
