@@ -114,15 +114,17 @@ def train(cfg):
     loggers = [csv_logger]
     if wandb_mode != "disabled":
         wandb_project = str(getattr(cfg, "wandb_project", "Trajworld"))
-        run_id = run_name.replace(" ", "-")
-        wandb_logger = WandbLogger(
-            project=wandb_project,
-            name=run_name,
-            id=run_id,
-            resume="allow",
-            save_dir=wandb_dir,
-            offline=(wandb_mode == "offline"),
-        )
+        wandb_kwargs = {
+            "project": wandb_project,
+            "name": run_name,
+            "save_dir": wandb_dir,
+            "offline": (wandb_mode == "offline"),
+        }
+        wandb_run_id = getattr(cfg, "wandb_run_id", None)
+        if wandb_run_id:
+            wandb_kwargs["id"] = str(wandb_run_id)
+            wandb_kwargs["resume"] = str(getattr(cfg, "wandb_resume", "allow"))
+        wandb_logger = WandbLogger(**wandb_kwargs)
         loggers.insert(0, wandb_logger)
 
     # automatically resume training
