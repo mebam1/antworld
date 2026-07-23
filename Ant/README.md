@@ -265,3 +265,16 @@ WestWorld predicts the Ant observation channels, not root x/y position. The
 renderer reconstructs predicted root x/y by integrating predicted linear
 velocity from the GT prefix boundary. For a shape-only comparison at the GT
 position, pass `--xy-mode gt`.
+
+Render the closed-loop version in Docker, where only the first state is shared
+and WestWorld-side actions are recomputed from WestWorld-predicted states:
+
+```bash
+docker compose run --rm westworld python Ant/render_westworld_closed_loop_prediction.py \
+  --ckpt ./CTFM/Ant-Running-WestWorld/checkpoints/last.ckpt \
+  --ppo-ckpt Ant/ppo_westworld_checkpoints/ppo_westworld_ant_update_0100.pt \
+  --stats Trajworld_data/UniTraj_pt/ant_running_pt/ant_running_ppo/minmax_ant_running_ppo.pt \
+  --out Ant/renders/westworld_closed_loop_vs_gt.mp4 \
+  --width 640 \
+  --height 480
+```
