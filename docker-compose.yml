@@ -12,7 +12,7 @@ services:
     tty: true
     gpus: all
     environment:
-      WANDB_MODE: ${WANDB_MODE:-offline}
+      WANDB_MODE: ${WANDB_MODE:-online}
       NVIDIA_VISIBLE_DEVICES: ${NVIDIA_VISIBLE_DEVICES:-all}
       NVIDIA_DRIVER_CAPABILITIES: compute,utility,graphics
       PYTHONPATH: /workspace/WestWorld
