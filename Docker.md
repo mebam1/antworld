@@ -50,6 +50,32 @@ docker compose run --rm westworld python train.py --config-name config_ant_runni
   data.test_h5_dir=./dataset_h5_ant_running_ppo
 ```
 
+## WestWorld 예측 렌더링 실행
+
+PowerShell:
+
+```powershell
+docker compose run --rm westworld python Ant/render_westworld_prediction.py `
+  --ckpt ./CTFM/Ant-Running-WestWorld/checkpoints/last.ckpt `
+  --ppo-ckpt Ant/ppo_westworld_checkpoints/ppo_westworld_ant_update_0100.pt `
+  --stats Trajworld_data/UniTraj_pt/ant_running_pt/ant_running_ppo/minmax_ant_running_ppo.pt `
+  --out Ant/renders/westworld_vs_gt.mp4 `
+  --width 640 `
+  --height 480
+```
+
+bash:
+
+```bash
+docker compose run --rm westworld python Ant/render_westworld_prediction.py \
+  --ckpt ./CTFM/Ant-Running-WestWorld/checkpoints/last.ckpt \
+  --ppo-ckpt Ant/ppo_westworld_checkpoints/ppo_westworld_ant_update_0100.pt \
+  --stats Trajworld_data/UniTraj_pt/ant_running_pt/ant_running_ppo/minmax_ant_running_ppo.pt \
+  --out Ant/renders/westworld_vs_gt.mp4 \
+  --width 640 \
+  --height 480
+```
+
 ## GPU 선택
 
 전체 GPU를 쓰는 기본 설정 그대로 실행하면 위 명령을 쓰면 됩니다. 특정 GPU만 쓰려면 실행 전에 `NVIDIA_VISIBLE_DEVICES`를 지정합니다.
