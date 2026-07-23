@@ -27,7 +27,7 @@ The first argument controls where non-environment files such as MuJoCo, caches, 
 
 ## Docker
 
-Build the CUDA 12.8 container:
+Build the CUDA 12.8 development image:
 
 ```bash
 DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1 docker compose build
@@ -53,7 +53,25 @@ Run training inside the container:
 docker compose run --rm westworld python train.py
 ```
 
-The compose file mounts `Trajworld_data/`, `dataset_h5/`, `dataset_h5_ant_running/`, `pre_trained/`, `outputs/`, `figure/`, and `wandb/` from the host, so datasets and checkpoints are not baked into the image. GPU execution requires Docker with NVIDIA Container Toolkit. The container is configured to expose only host GPU `1`.
+The compose file bind-mounts the whole repository at `/workspace/WestWorld`.
+Host code changes are visible inside the container immediately, and files written
+by the container under directories such as `outputs/`, `figure/`, `nohup/`, and
+`wandb/` appear on the host immediately. Long-running Python processes still need
+to be restarted to load changed Python source.
+
+GPU execution requires Docker with NVIDIA Container Toolkit. By default the
+container can see all GPUs. To restrict GPUs, set `NVIDIA_VISIBLE_DEVICES` before
+running compose, for example:
+
+```bash
+NVIDIA_VISIBLE_DEVICES=0 docker compose run --rm westworld python train.py
+```
+
+PowerShell:
+
+```powershell
+$env:NVIDIA_VISIBLE_DEVICES="0"; docker compose run --rm westworld python train.py
+```
 
 ## Quick Start
 

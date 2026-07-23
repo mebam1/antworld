@@ -171,7 +171,7 @@ def parse_args() -> argparse.Namespace:
 
     parser.add_argument("--train-exp-name", default=None)
     parser.add_argument("--h5-dir", type=Path, default=None)
-    parser.add_argument("--wandb-mode", default=None)
+    parser.add_argument("--wandb-mode", default="offline")
     parser.add_argument("--train-extra-override", action="append", default=[], help="Extra Hydra override for train.py.")
 
     parser.add_argument("--render-out-dir", type=Path, default=None)

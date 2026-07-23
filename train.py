@@ -16,6 +16,22 @@ from torch.utils.data import Subset
 
 # python train.py
 
+def normalize_wandb_mode(value) -> str:
+    mode = str(value).strip().lower()
+    aliases = {
+        "0": "disabled",
+        "false": "disabled",
+        "no": "disabled",
+        "off": "disabled",
+        "disable": "disabled",
+        "none": "disabled",
+    }
+    mode = aliases.get(mode, mode)
+    if mode not in {"online", "offline", "disabled"}:
+        raise ValueError(f"Unsupported wandb_mode={value!r}; expected online, offline, or disabled")
+    return mode
+
+
 def read_global_step(ckpt_path: str) -> int:
     ckpt = torch.load(ckpt_path, map_location="cpu")
     if "global_step" in ckpt:
@@ -83,23 +99,31 @@ def train(cfg):
         collate_fn=train_set.collate_fn)
     
 
-    wandb_mode = str(os.environ.get("WANDB_MODE") or getattr(cfg, "wandb_mode", "online")).lower()
+    # Prefer Hydra config/CLI overrides over the shell environment so
+    # `wandb_mode=offline` works even inside containers with WANDB_MODE set.
+    cfg_wandb_mode = getattr(cfg, "wandb_mode", None)
+    wandb_mode = normalize_wandb_mode(
+        cfg_wandb_mode if cfg_wandb_mode is not None else os.environ.get("WANDB_MODE", "offline")
+    )
     os.environ["WANDB_MODE"] = wandb_mode
     wandb_dir = os.environ.get("WANDB_DIR") or os.path.join(log_root, "wandb")
     os.makedirs(wandb_dir, exist_ok=True)
 
-    wandb_project = str(getattr(cfg, "wandb_project", "Trajworld"))
     run_name = f"{cfg.exp_name}-seed{cfg.seed}"
-    run_id = run_name.replace(" ", "-")
-    wandb_logger = WandbLogger(
-        project=wandb_project,
-        name=run_name,
-        id=run_id,
-        resume="allow",
-        save_dir=wandb_dir,
-        offline=(wandb_mode == "offline"),
-    )
     csv_logger = CSVLogger(save_dir=log_root, name="csv_logs")
+    loggers = [csv_logger]
+    if wandb_mode != "disabled":
+        wandb_project = str(getattr(cfg, "wandb_project", "Trajworld"))
+        run_id = run_name.replace(" ", "-")
+        wandb_logger = WandbLogger(
+            project=wandb_project,
+            name=run_name,
+            id=run_id,
+            resume="allow",
+            save_dir=wandb_dir,
+            offline=(wandb_mode == "offline"),
+        )
+        loggers.insert(0, wandb_logger)
 
     # automatically resume training
     if cfg.ckpt_path is None:
@@ -118,7 +142,7 @@ def train(cfg):
         max_epochs=max_epochs,
         max_steps=target_steps,
         val_check_interval=val_check_interval,  # e.g. 1000 means running validation every 1000 optimizer steps
-        logger=[wandb_logger, csv_logger],
+        logger=loggers,
         default_root_dir=log_root,
         devices=cfg.devices,
         accelerator="gpu",

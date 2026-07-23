@@ -1,5 +1,3 @@
-version: "2.3"
-
 services:
   westworld:
     build:
@@ -7,22 +5,20 @@ services:
       args:
         ENV_NAME: westworld
         WESTWORLD_EXTERNAL_ROOT: /opt/westworld-external
-    image: antworld:latest
+    image: westworld:dev
     working_dir: /workspace/WestWorld
     shm_size: "16gb"
     stdin_open: true
     tty: true
-    runtime: nvidia
+    gpus: all
     environment:
-      WANDB_MODE: online
-      NVIDIA_VISIBLE_DEVICES: "0,1,2,3"
+      WANDB_MODE: ${WANDB_MODE:-offline}
+      NVIDIA_VISIBLE_DEVICES: ${NVIDIA_VISIBLE_DEVICES:-all}
       NVIDIA_DRIVER_CAPABILITIES: compute,utility,graphics
+      PYTHONPATH: /workspace/WestWorld
+      PYTHONUNBUFFERED: "1"
     volumes:
-      - ./Trajworld_data:/workspace/WestWorld/Trajworld_data
-      - ./dataset_h5:/workspace/WestWorld/dataset_h5
-      - ./dataset_h5_ant_running:/workspace/WestWorld/dataset_h5_ant_running
-      - ./pre_trained:/workspace/WestWorld/pre_trained
-      - ./outputs:/workspace/WestWorld/outputs
-      - ./figure:/workspace/WestWorld/figure
-      - ./wandb:/workspace/WestWorld/wandb
+      - type: bind
+        source: .
+        target: /workspace/WestWorld
     command: bash
