@@ -57,6 +57,64 @@ docker compose run --rm westworld python train.py --config-name config_ant_runni
   data.test_h5_dir=./dataset_h5_ant_running_ppo_31d
 ```
 
+## 수집 데이터 렌더링
+
+수집된 PPO episode를 그대로 MP4로 렌더링하려면 `Ant/render_collected_ant_data.py`를 사용합니다. `ppo_collect_ant_data.py`로 만든 데이터는 `qpos/qvel`을 포함하므로 실제 MuJoCo state로 렌더링됩니다.
+
+먼저 수집된 episode 파일과 global index 범위를 확인할 수 있습니다.
+
+PowerShell:
+
+```powershell
+docker compose run --rm westworld python Ant/render_collected_ant_data.py `
+  --episodes Trajworld_data/UniTraj_pt/ant_running_pt/ant_running_ppo `
+  --list
+```
+
+bash:
+
+```bash
+docker compose run --rm westworld python Ant/render_collected_ant_data.py \
+  --episodes Trajworld_data/UniTraj_pt/ant_running_pt/ant_running_ppo \
+  --list
+```
+
+episode 하나를 MP4로 저장합니다.
+
+PowerShell:
+
+```powershell
+docker compose run --rm westworld python Ant/render_collected_ant_data.py `
+  --episodes Trajworld_data/UniTraj_pt/ant_running_pt/ant_running_ppo `
+  --episode-index 0 `
+  --out Ant/renders/collected_ant_episode.mp4 `
+  --width 640 `
+  --height 480
+```
+
+bash:
+
+```bash
+docker compose run --rm westworld python Ant/render_collected_ant_data.py \
+  --episodes Trajworld_data/UniTraj_pt/ant_running_pt/ant_running_ppo \
+  --episode-index 0 \
+  --out Ant/renders/collected_ant_episode.mp4 \
+  --width 640 \
+  --height 480
+```
+
+짧은 구간만 빠르게 확인하려면 `--start-step`, `--num-steps`, `--stride`를 조정합니다.
+
+```bash
+docker compose run --rm westworld python Ant/render_collected_ant_data.py \
+  --episodes Trajworld_data/UniTraj_pt/ant_running_pt/ant_running_ppo \
+  --episode-index 0 \
+  --start-step 0 \
+  --num-steps 200 \
+  --stride 2 \
+  --out Ant/renders/collected_ant_episode_short.mp4
+```
+
 ## WestWorld 예측 렌더링
 
 PPO checkpoint로 MuJoCo GT rollout을 새로 만들고, 같은 action sequence를 WestWorld에 넣어 예측 trajectory를 렌더링합니다. 예측된 Ant 6D rotation은 렌더링 전에 quaternion으로 변환됩니다.
