@@ -36,6 +36,7 @@ from generate_ant_data import (  # noqa: E402
     DEFAULT_XML,
     OBS_DIM,
     AntBackend,
+    rot6d_to_quat_batch,
 )
 from ppo_collect_ant_data import (  # noqa: E402
     ActorCritic,
@@ -247,16 +248,6 @@ def predict_obs_raw(model, batch: dict, stats: dict) -> torch.Tensor:
     return pred_raw.detach().cpu()
 
 
-def normalize_quat_np(q: np.ndarray) -> np.ndarray:
-    norm = np.linalg.norm(q, axis=-1, keepdims=True)
-    norm = np.maximum(norm, 1e-8)
-    out = q / norm
-    bad = ~np.isfinite(out).all(axis=-1)
-    if bad.any():
-        out[bad] = np.array([1.0, 0.0, 0.0, 0.0], dtype=out.dtype)
-    return out
-
-
 def pred_obs_to_qpos_qvel(
     pred_obs_raw: torch.Tensor,
     gt_qpos: torch.Tensor,
@@ -282,12 +273,12 @@ def pred_obs_to_qpos_qvel(
         return qpos, qvel
 
     qpos[:, 2] = np.clip(pred[:, 0], 0.05, 5.0)
-    qpos[:, 3:7] = normalize_quat_np(pred[:, 1:5])
-    qpos[:, 7:15] = pred[:, 11:19]
+    qpos[:, 3:7] = rot6d_to_quat_batch(pred[:, 1:7])
+    qpos[:, 7:15] = pred[:, 13:21]
 
-    qvel[:, 0:3] = pred[:, 5:8]
-    qvel[:, 3:6] = pred[:, 8:11]
-    qvel[:, 6:14] = pred[:, 19:27]
+    qvel[:, 0:3] = pred[:, 7:10]
+    qvel[:, 3:6] = pred[:, 10:13]
+    qvel[:, 6:14] = pred[:, 21:29]
 
     if xy_mode == "gt":
         qpos[:, 0:2] = gt_aligned[:, 0:2]

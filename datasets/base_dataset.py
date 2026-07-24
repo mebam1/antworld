@@ -24,6 +24,32 @@ def _time_channel_masks(Tw: int, L: int, Do: int, MAX_Do: int, Da: int, MAX_Da: 
     am1 = torch.zeros(MAX_Da, dtype=torch.float32); am1[:min(Da, MAX_Da)] = 1.0
     return tmask[:, None] * om1[None, :], tmask[:, None] * am1[None, :]
 
+def _validate_h5_chunks(files: List[str], L: int, stride: int, MAX_OBS_DIM: int, MAX_ACTION_DIM: int) -> None:
+    """Fail fast when a stale H5 cache does not match the active config."""
+    for path in files:
+        with h5py.File(path, "r") as hf:
+            obs_shape = hf["obs"].shape
+            action_shape = hf["action"].shape
+            if obs_shape[1] != L:
+                raise RuntimeError(f"Stale H5 cache {path}: obs length={obs_shape[1]} but config data_length={L}.")
+            if action_shape[1] != L:
+                raise RuntimeError(f"Stale H5 cache {path}: action length={action_shape[1]} but config data_length={L}.")
+            if obs_shape[-1] != MAX_OBS_DIM:
+                raise RuntimeError(f"Stale H5 cache {path}: obs dim={obs_shape[-1]} but config MAX_OBS_DIM={MAX_OBS_DIM}.")
+            if action_shape[-1] != MAX_ACTION_DIM:
+                raise RuntimeError(
+                    f"Stale H5 cache {path}: action dim={action_shape[-1]} but config MAX_ACTION_DIM={MAX_ACTION_DIM}."
+                )
+
+            for key, expected in [
+                ("length", L),
+                ("stride", stride),
+                ("max_obs_dim", MAX_OBS_DIM),
+                ("max_action_dim", MAX_ACTION_DIM),
+            ]:
+                if key in hf.attrs and int(hf.attrs[key]) != int(expected):
+                    raise RuntimeError(f"Stale H5 cache {path}: attr {key}={hf.attrs[key]} but config expects {expected}.")
+
 # ---------- Main class ----------
 class BaseDataset(Dataset):
     """
@@ -62,6 +88,7 @@ class BaseDataset(Dataset):
         if not existing:
             self._pt_to_h5_windows()
             existing = sorted(glob.glob(os.path.join(self.h5_dir, "chunk_*.h5")))
+        _validate_h5_chunks(existing, self.L, self.stride, self.MAX_OBS_DIM, self.MAX_ACTION_DIM)
 
         # Only keep filenames and sample counts for lazy loading
         self.lazy_chunk_files  = existing

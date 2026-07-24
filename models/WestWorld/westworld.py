@@ -764,7 +764,7 @@ class WestWorld(BaseModel):
         M  = Do + Da
 
         # ******************************************************************
-        prefix_T = max(0, min(self.eval_prefix_T, T // 2))
+        prefix_T = max(0, min(self.eval_prefix_T, T))
         time_mask = torch.ones(B, T, device=device)
         time_mask[:, prefix_T:] = 0  # Unobserved after the prefix
         # ******************************************************************

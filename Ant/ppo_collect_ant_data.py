@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
-"""Train a small PPO policy for Ant and collect intermediate-policy data.
+"""Train a small PPO policy for Ant, then collect final-policy data.
 
 The saved files keep the UniTraj-style keys used by WestWorld:
   obs, action, reward, task
 
-For visualization, each episode also stores raw MuJoCo states:
+For visualization, each collected episode also stores raw MuJoCo states:
   qpos, qvel, policy_update
 
 The dataset converter ignores those extra keys, so the output remains training
-compatible while still being renderable.
+compatible while still being renderable. Data collection happens after PPO
+training finishes, so the WestWorld dataset contains only final-policy
+trajectories.
 """
 
 from __future__ import annotations
@@ -86,7 +88,7 @@ class MinMaxAccumulator:
 
     def state_dict(self) -> dict:
         if self.episodes == 0:
-            raise RuntimeError("No episodes collected. Increase --total-updates or enable initial collection.")
+            raise RuntimeError("No episodes collected. Increase --collect-episodes.")
         assert self.obs_min is not None
         assert self.obs_max is not None
         assert self.action_min is not None
@@ -534,7 +536,7 @@ def save_final_chunks_from_raw(
     flush_final()
 
 
-def collect_snapshot(
+def collect_final_policy_episodes(
     backend: AntBackend,
     model: ActorCritic,
     rng: np.random.Generator,
@@ -568,14 +570,14 @@ def collect_snapshot(
         returns.append(float(ep["reward"].sum().item()))
         lengths.append(int(ep["obs"].shape[0]))
     print(
-        f"[snapshot update={update_idx}] episodes={episodes} "
+        f"[collect final update={update_idx}] episodes={episodes} "
         f"avg_len={np.mean(lengths):.1f} avg_return={np.mean(returns):.3f}"
     )
     return collected
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Train PPO on Ant and collect intermediate policy episodes.")
+    parser = argparse.ArgumentParser(description="Train PPO on Ant, then collect final-policy episodes.")
     parser.add_argument("--xml", type=Path, default=DEFAULT_XML, help="Path to ant.xml.")
     parser.add_argument("--out-dir", type=Path, default=PPO_DEFAULT_OUT, help="Output directory for episodes_*.pt.")
     parser.add_argument("--prefix", default="ant_running_ppo", help="Output filename prefix.")
@@ -596,10 +598,30 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--hidden-size", type=int, default=256)
     parser.add_argument("--layers", type=int, default=2)
     parser.add_argument("--max-steps", type=int, default=500)
-    parser.add_argument("--collect-interval", type=int, default=5, help="Collect data every N PPO updates.")
-    parser.add_argument("--episodes-per-snapshot", type=int, default=20)
-    parser.add_argument("--no-collect-initial", action="store_true", help="Skip collecting the untrained initial policy.")
-    parser.add_argument("--deterministic-collection", action="store_true", help="Use mean action during snapshot collection.")
+    parser.add_argument(
+        "--collect-interval",
+        type=int,
+        default=5,
+        help="Deprecated compatibility flag; collection now happens only after the final PPO update.",
+    )
+    parser.add_argument(
+        "--episodes-per-snapshot",
+        type=int,
+        default=20,
+        help="Deprecated compatibility flag used as --collect-episodes when --collect-episodes is omitted.",
+    )
+    parser.add_argument(
+        "--collect-episodes",
+        type=int,
+        default=None,
+        help="Number of final-policy episodes to collect after PPO training finishes.",
+    )
+    parser.add_argument(
+        "--no-collect-initial",
+        action="store_true",
+        help="Deprecated compatibility flag; initial-policy collection is no longer performed.",
+    )
+    parser.add_argument("--deterministic-collection", action="store_true", help="Use mean action during final-policy collection.")
     parser.add_argument("--qpos-noise", type=float, default=0.05)
     parser.add_argument("--qvel-noise", type=float, default=0.05)
     parser.add_argument(
@@ -621,8 +643,9 @@ def main() -> None:
     args = parse_args()
     if args.total_updates < 0:
         raise ValueError("--total-updates must be non-negative")
-    if args.collect_interval <= 0:
-        raise ValueError("--collect-interval must be positive")
+    collect_episodes = int(args.collect_episodes if args.collect_episodes is not None else args.episodes_per_snapshot)
+    if collect_episodes <= 0:
+        raise ValueError("--collect-episodes must be positive")
 
     random.seed(args.seed)
     np.random.seed(args.seed)
@@ -645,22 +668,11 @@ def main() -> None:
     raw_dir = args.out_dir / f"_raw_{args.prefix}_chunks"
     raw_writer = RawChunkWriter(raw_dir, args.prefix, args.chunk_size, stats_acc)
 
-    if not args.no_collect_initial:
-        raw_writer.add_many(
-            collect_snapshot(
-                backend,
-                model,
-                rng,
-                device,
-                update_idx=0,
-                episodes=args.episodes_per_snapshot,
-                max_steps=args.max_steps,
-                qpos_noise=args.qpos_noise,
-                qvel_noise=args.qvel_noise,
-                deterministic=args.deterministic_collection,
-                clamp_joint_angles=clamp_joint_angles,
-            )
-        )
+    print(
+        "[train PPO before collection] "
+        f"updates={args.total_updates} rollout_steps={args.rollout_steps} "
+        f"collect_episodes_after_training={collect_episodes}"
+    )
 
     for update_idx in range(1, args.total_updates + 1):
         rollout = collect_ppo_rollout(
@@ -696,34 +708,33 @@ def main() -> None:
             f"entropy={losses['entropy']:.4f}"
         )
 
-        should_collect = update_idx % args.collect_interval == 0 or update_idx == args.total_updates
-        if should_collect:
-            ckpt_path = args.policy_dir / f"ppo_ant_update_{update_idx:04d}.pt"
-            torch.save(
-                {
-                    "update": update_idx,
-                    "model_state_dict": model.state_dict(),
-                    "optimizer_state_dict": optimizer.state_dict(),
-                    "args": vars(args),
-                },
-                ckpt_path,
-            )
-            print(f"[save] {ckpt_path}")
-            raw_writer.add_many(
-                collect_snapshot(
-                    backend,
-                    model,
-                    rng,
-                    device,
-                    update_idx=update_idx,
-                    episodes=args.episodes_per_snapshot,
-                    max_steps=args.max_steps,
-                    qpos_noise=args.qpos_noise,
-                    qvel_noise=args.qvel_noise,
-                    deterministic=args.deterministic_collection,
-                    clamp_joint_angles=clamp_joint_angles,
-                )
-            )
+    ckpt_path = args.policy_dir / f"ppo_ant_update_{args.total_updates:04d}.pt"
+    torch.save(
+        {
+            "update": args.total_updates,
+            "model_state_dict": model.state_dict(),
+            "optimizer_state_dict": optimizer.state_dict(),
+            "args": vars(args),
+        },
+        ckpt_path,
+    )
+    print(f"[save final PPO] {ckpt_path}")
+
+    raw_writer.add_many(
+        collect_final_policy_episodes(
+            backend,
+            model,
+            rng,
+            device,
+            update_idx=args.total_updates,
+            episodes=collect_episodes,
+            max_steps=args.max_steps,
+            qpos_noise=args.qpos_noise,
+            qvel_noise=args.qvel_noise,
+            deterministic=args.deterministic_collection,
+            clamp_joint_angles=clamp_joint_angles,
+        )
+    )
 
     raw_files = raw_writer.close()
     stats = stats_acc.state_dict()

@@ -20,7 +20,7 @@ Each saved episode is a plain dictionary:
 
 ```python
 {
-    "obs": torch.FloatTensor,      # [T, 29]
+    "obs": torch.FloatTensor,      # [T, 31]
     "action": torch.FloatTensor,   # [T, 8]
     "reward": torch.FloatTensor,   # [T]
     "task": torch.LongTensor,      # [T], filled with 131
@@ -64,25 +64,23 @@ python train.py --config-name config_ant_running ckpt_path=null
 
 ## PPO Policy Data
 
-To collect data from imperfect PPO policies during training:
+To train PPO first and collect data from the final policy:
 
 ```bash
 python Ant/ppo_collect_ant_data.py \
   --total-updates 30 \
-  --collect-interval 5 \
-  --episodes-per-snapshot 20 \
+  --collect-episodes 1000 \
   --prefix ant_running_ppo
 ```
 
-The script trains a small PPO policy and periodically snapshots the current
-policy. The saved dataset therefore contains episodes from early, middle, and
-later imperfect policies instead of only a final converged controller.
+The script trains a small PPO policy to the requested final update, saves that
+checkpoint, then collects a fresh dataset using only the final policy.
 
 Outputs use the same WestWorld training keys:
 
 ```python
 {
-    "obs": torch.FloatTensor,      # [T, 29]
+    "obs": torch.FloatTensor,      # [T, 31]
     "action": torch.FloatTensor,   # [T, 8]
     "reward": torch.FloatTensor,   # [T]
     "task": torch.LongTensor,      # [T], filled with 131
@@ -125,16 +123,15 @@ sequence:
 ```bash
 python Ant/run_ant_westworld_pipeline.py \
   --total-updates 1000000 \
-  --collect-interval 5 \
-  --episodes-per-snapshot 20 \
+  --collect-episodes 1000 \
   --prefix ant_running_ppo
 ```
 
 The script runs these stages:
 
 ```text
-1. Collect PPO snapshots with Ant/ppo_collect_ant_data.py
-2. Render PPO trajectories near 10%, 50%, and 100% of total updates
+1. Train PPO, then collect final-policy data with Ant/ppo_collect_ant_data.py
+2. Render one final-policy PPO trajectory
 3. Train WestWorld from scratch with train.py --config-name config_ant_running
 4. Render the final PPO rollout against the trained WestWorld prediction
 ```
@@ -146,7 +143,7 @@ Trajworld_data/UniTraj_pt/ant_running_pt/<run-name>/   # PPO episodes and minmax
 Ant/ppo_checkpoints/<run-name>/                        # PPO checkpoints
 dataset_h5_ant_running_ppo_<run-name>/                 # H5 cache
 CTFM/Ant-Running-WestWorld-<run-name>/                 # WestWorld checkpoints
-outputs/<run-name>/                                    # 10/50/100% PPO videos
+outputs/<run-name>/                                    # final PPO video
 Ant/renders/<run-name>_westworld_vs_gt.mp4             # final comparison video
 ```
 
@@ -156,8 +153,7 @@ Use `--run-name` to make those paths stable:
 python Ant/run_ant_westworld_pipeline.py \
   --run-name ant-ppo-million-v1 \
   --total-updates 1000000 \
-  --collect-interval 5 \
-  --episodes-per-snapshot 20
+  --collect-episodes 1000
 ```
 
 For a quick path check without starting training:
@@ -177,11 +173,11 @@ example:
 [Stage 3: Train WestWorld from scratch] failed: ...
 ```
 
-Long PPO collection can produce a large dataset. `ppo_collect_ant_data.py`
-flushes collected snapshots to temporary raw chunks during collection, then
-writes normalized final chunks after `minmax_*.pt` is computed. Temporary raw
-chunks are deleted by default; pass `--keep-raw-chunks` directly to
-`ppo_collect_ant_data.py` when debugging that lower-level script.
+Long final-policy collection can produce a large dataset. `ppo_collect_ant_data.py`
+flushes collected episodes to temporary raw chunks, then writes normalized final
+chunks after `minmax_*.pt` is computed. Temporary raw chunks are deleted by
+default; pass `--keep-raw-chunks` directly to `ppo_collect_ant_data.py` when
+debugging that lower-level script.
 
 ## PPO in WestWorld Simulation
 
@@ -266,15 +262,16 @@ renderer reconstructs predicted root x/y by integrating predicted linear
 velocity from the GT prefix boundary. For a shape-only comparison at the GT
 position, pass `--xy-mode gt`.
 
-Render the closed-loop version in Docker, where only the first state is shared
-and WestWorld-side actions are recomputed from WestWorld-predicted states:
+Evaluate the autoregressive closed-loop prediction setting in Docker. Episodes
+are split into 150-step segments, the first 50 states are used as history, and
+the next 100 states are rolled out autoregressively with GT actions:
 
 ```bash
 docker compose run --rm westworld python Ant/render_westworld_closed_loop_prediction.py \
   --ckpt ./CTFM/Ant-Running-WestWorld/checkpoints/last.ckpt \
-  --ppo-ckpt Ant/ppo_westworld_checkpoints/ppo_westworld_ant_update_0100.pt \
   --stats Trajworld_data/UniTraj_pt/ant_running_pt/ant_running_ppo/minmax_ant_running_ppo.pt \
-  --out Ant/renders/westworld_closed_loop_vs_gt.mp4 \
+  --episodes Trajworld_data/UniTraj_pt/ant_running_pt/ant_running_ppo \
+  --out Ant/renders/westworld_closed_loop_eval.mp4 \
   --width 640 \
   --height 480
 ```

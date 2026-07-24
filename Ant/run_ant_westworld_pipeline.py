@@ -159,8 +159,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--device", default=None, help="Forwarded to PPO collection and rendering scripts.")
 
     parser.add_argument("--total-updates", type=int, default=1_000_000)
-    parser.add_argument("--collect-interval", type=int, default=5)
-    parser.add_argument("--episodes-per-snapshot", type=int, default=20)
+    parser.add_argument("--collect-interval", type=int, default=5, help="Deprecated; final-policy collection ignores intervals.")
+    parser.add_argument("--episodes-per-snapshot", type=int, default=20, help="Compatibility alias for final collection size.")
+    parser.add_argument("--collect-episodes", type=int, default=None, help="Final-policy episodes collected after PPO training.")
     parser.add_argument("--prefix", default="ant_running_ppo")
     parser.add_argument("--ppo-out-dir", type=Path, default=None)
     parser.add_argument("--policy-dir", type=Path, default=None)
@@ -223,8 +224,6 @@ def main() -> int:
             "Ant/ppo_collect_ant_data.py",
             "--total-updates",
             str(args.total_updates),
-            "--collect-interval",
-            str(args.collect_interval),
             "--episodes-per-snapshot",
             str(args.episodes_per_snapshot),
             "--prefix",
@@ -239,6 +238,7 @@ def main() -> int:
         maybe_append("--device", args.device, cmd)
         maybe_append("--rollout-steps", args.rollout_steps, cmd)
         maybe_append("--max-steps", args.max_steps, cmd)
+        maybe_append("--collect-episodes", args.collect_episodes, cmd)
         if args.deterministic_collection:
             cmd.append("--deterministic-collection")
         if args.no_joint_angle_clamp:
@@ -248,32 +248,26 @@ def main() -> int:
             raise FileNotFoundError(f"Expected stats file was not created: {rel_cli_path(stats_path)}")
 
     def stage2(stage: str) -> None:
-        targets = [
-            ("10pct", int(round(args.total_updates * 0.10))),
-            ("50pct", int(round(args.total_updates * 0.50))),
-            ("100pct", args.total_updates),
-        ]
         selected_dir = render_out_dir / "selected_episodes"
-        for label, target_update in targets:
-            selected_update, selected_file = select_episode_for_update(
-                ppo_out_dir,
-                args.prefix,
-                target_update,
-                selected_dir / f"episode_{label}_target_{target_update}.pt",
-            )
-            out_file = render_out_dir / f"ant_episode_{label}_update_{selected_update}.mp4"
-            cmd = [
-                sys.executable,
-                "Ant/render_ant_episode.py",
-                "--episodes",
-                rel_cli_path(selected_file),
-                "--episode-index",
-                "0",
-                "--out",
-                rel_cli_path(out_file),
-            ]
-            add_common_render_args(args, cmd)
-            run_command(f"{stage} ({label})", cmd)
+        selected_update, selected_file = select_episode_for_update(
+            ppo_out_dir,
+            args.prefix,
+            args.total_updates,
+            selected_dir / f"episode_final_target_{args.total_updates}.pt",
+        )
+        out_file = render_out_dir / f"ant_episode_final_update_{selected_update}.mp4"
+        cmd = [
+            sys.executable,
+            "Ant/render_ant_episode.py",
+            "--episodes",
+            rel_cli_path(selected_file),
+            "--episode-index",
+            "0",
+            "--out",
+            rel_cli_path(out_file),
+        ]
+        add_common_render_args(args, cmd)
+        run_command(stage, cmd)
 
     def stage3(stage: str) -> None:
         ensure_scratch_train_target(train_exp_name)
@@ -317,7 +311,7 @@ def main() -> int:
 
     stages: Iterable[tuple[int, str, object]] = [
         (1, "PPO data collection", stage1),
-        (2, "Render 10/50/100 percent PPO trajectories", stage2),
+        (2, "Render final PPO trajectory", stage2),
         (3, "Train WestWorld from scratch", stage3),
         (4, "Render PPO vs WestWorld rollout comparison", stage4),
     ]

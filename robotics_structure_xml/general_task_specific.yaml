@@ -5176,18 +5176,20 @@ tasks:
       - [torque, 0, back_leg]         # hip_3
       - [torque, 0, ankle_3]          # ankle_3
 
-    # Observation space: 29 dims.
-    # [height(1), base quaternion(4), base linear velocity(3),
+    # Observation space: 31 dims.
+    # [height(1), base 6D rotation(6), base linear velocity(3),
     #  base angular velocity(3), joint positions(8), joint velocities(8),
     #  up and heading projections(2)]
     # Joint observation order follows MuJoCo qpos[7:15] / qvel[6:14].
     observations:
       - [height, 0, torso]            # h
 
-      - [quat, 0, torso]              # base quaternion w
-      - [quat, 0, torso]              # base quaternion x
-      - [quat, 0, torso]              # base quaternion y
-      - [quat, 0, torso]              # base quaternion z
+      - [rot6d, 0, torso]             # base rotation col0 x
+      - [rot6d, 0, torso]             # base rotation col0 y
+      - [rot6d, 0, torso]             # base rotation col0 z
+      - [rot6d, 0, torso]             # base rotation col1 x
+      - [rot6d, 0, torso]             # base rotation col1 y
+      - [rot6d, 0, torso]             # base rotation col1 z
 
       - [v_lin, 0, torso]             # vx
       - [v_lin, 0, torso]             # vy

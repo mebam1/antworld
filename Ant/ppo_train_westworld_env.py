@@ -38,7 +38,8 @@ from generate_ant_data import (  # noqa: E402
     AntBackend,
     ant_done,
     ant_reward,
-    quat_to_mat,
+    canonicalize_rot6d,
+    rot6d_to_mat,
 )
 from ppo_collect_ant_data import (  # noqa: E402
     ActorCritic,
@@ -142,22 +143,15 @@ def joint_angle_bounds_from_backend(backend: AntBackend) -> Tuple[np.ndarray, np
     return low, high
 
 
-def normalize_quat_np(q: np.ndarray) -> np.ndarray:
-    norm = float(np.linalg.norm(q))
-    if norm <= 1e-8 or not np.isfinite(norm):
-        return np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float32)
-    return (q / norm).astype(np.float32)
-
-
 def sanitize_ant_obs(obs: np.ndarray, joint_low: np.ndarray, joint_high: np.ndarray) -> np.ndarray:
     out = np.nan_to_num(obs.astype(np.float32), nan=0.0, posinf=0.0, neginf=0.0)
     out[0] = np.clip(out[0], 0.05, 5.0)
-    out[1:5] = normalize_quat_np(out[1:5])
-    out[11:19] = np.clip(out[11:19], joint_low, joint_high)
+    out[1:7] = canonicalize_rot6d(out[1:7])
+    out[13:21] = np.clip(out[13:21], joint_low, joint_high)
 
-    rot = quat_to_mat(out[1:5])
-    out[27] = float(rot[2, 2])
-    out[28] = float(rot[0, 0])
+    rot = rot6d_to_mat(out[1:7])
+    out[29] = float(rot[2, 2])
+    out[30] = float(rot[0, 0])
     return out
 
 

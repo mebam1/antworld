@@ -2,7 +2,7 @@
 """Generate Ant Running episodes in the UniTraj-style PT format.
 
 Output files are lists of plain dict episodes:
-  obs:    FloatTensor [T, 29]
+  obs:    FloatTensor [T, 31]
   action: FloatTensor [T, 8]
   reward: FloatTensor [T]
   task:   LongTensor  [T] filled with task id 131
@@ -28,7 +28,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_XML = REPO_ROOT / "robotics_structure_xml" / "ant.xml"
 DEFAULT_OUT = REPO_ROOT / "Trajworld_data" / "UniTraj_pt" / "ant_running_pt" / "ant_running"
 TASK_ID = 131
-OBS_DIM = 29
+OBS_DIM = 31
 ACT_DIM = 8
 
 
@@ -49,10 +49,107 @@ def quat_to_mat(q: np.ndarray) -> np.ndarray:
     )
 
 
+def quat_to_rot6d(q: np.ndarray) -> np.ndarray:
+    """Convert MuJoCo quaternion [w, x, y, z] to a 6D rotation representation."""
+    rot = quat_to_mat(q)
+    return np.concatenate([rot[:, 0], rot[:, 1]], axis=0).astype(np.float32)
+
+
+def rot6d_to_mat(rot6d: np.ndarray) -> np.ndarray:
+    """Project a 6D rotation representation back to a 3x3 rotation matrix."""
+    x = np.asarray(rot6d, dtype=np.float64).reshape(-1)
+    if x.shape[0] != 6 or not np.isfinite(x).all():
+        return np.eye(3, dtype=np.float32)
+
+    a1 = x[:3]
+    a2 = x[3:6]
+    n1 = float(np.linalg.norm(a1))
+    if n1 <= 1e-8:
+        return np.eye(3, dtype=np.float32)
+    b1 = a1 / n1
+
+    a2_ortho = a2 - float(np.dot(b1, a2)) * b1
+    n2 = float(np.linalg.norm(a2_ortho))
+    if n2 <= 1e-8:
+        return np.eye(3, dtype=np.float32)
+    b2 = a2_ortho / n2
+    b3 = np.cross(b1, b2)
+    return np.stack([b1, b2, b3], axis=1).astype(np.float32)
+
+
+def mat_to_quat(rot: np.ndarray) -> np.ndarray:
+    """Convert a 3x3 rotation matrix to a MuJoCo quaternion [w, x, y, z]."""
+    m = np.asarray(rot, dtype=np.float64).reshape(3, 3)
+    trace = float(np.trace(m))
+    if trace > 0.0:
+        s = math.sqrt(trace + 1.0) * 2.0
+        quat = np.array(
+            [
+                0.25 * s,
+                (m[2, 1] - m[1, 2]) / s,
+                (m[0, 2] - m[2, 0]) / s,
+                (m[1, 0] - m[0, 1]) / s,
+            ],
+            dtype=np.float64,
+        )
+    elif m[0, 0] > m[1, 1] and m[0, 0] > m[2, 2]:
+        s = math.sqrt(max(1.0 + m[0, 0] - m[1, 1] - m[2, 2], 1e-12)) * 2.0
+        quat = np.array(
+            [
+                (m[2, 1] - m[1, 2]) / s,
+                0.25 * s,
+                (m[0, 1] + m[1, 0]) / s,
+                (m[0, 2] + m[2, 0]) / s,
+            ],
+            dtype=np.float64,
+        )
+    elif m[1, 1] > m[2, 2]:
+        s = math.sqrt(max(1.0 + m[1, 1] - m[0, 0] - m[2, 2], 1e-12)) * 2.0
+        quat = np.array(
+            [
+                (m[0, 2] - m[2, 0]) / s,
+                (m[0, 1] + m[1, 0]) / s,
+                0.25 * s,
+                (m[1, 2] + m[2, 1]) / s,
+            ],
+            dtype=np.float64,
+        )
+    else:
+        s = math.sqrt(max(1.0 + m[2, 2] - m[0, 0] - m[1, 1], 1e-12)) * 2.0
+        quat = np.array(
+            [
+                (m[1, 0] - m[0, 1]) / s,
+                (m[0, 2] + m[2, 0]) / s,
+                (m[1, 2] + m[2, 1]) / s,
+                0.25 * s,
+            ],
+            dtype=np.float64,
+        )
+
+    return normalize_quat(quat).astype(np.float32)
+
+
+def rot6d_to_quat(rot6d: np.ndarray) -> np.ndarray:
+    return mat_to_quat(rot6d_to_mat(rot6d))
+
+
+def rot6d_to_quat_batch(rot6d: np.ndarray) -> np.ndarray:
+    arr = np.asarray(rot6d, dtype=np.float64)
+    if arr.ndim != 2 or arr.shape[1] != 6:
+        raise ValueError(f"Expected [N, 6] rot6d array, got {arr.shape}")
+    return np.stack([rot6d_to_quat(row) for row in arr], axis=0).astype(np.float64)
+
+
+def canonicalize_rot6d(rot6d: np.ndarray) -> np.ndarray:
+    rot = rot6d_to_mat(rot6d)
+    return np.concatenate([rot[:, 0], rot[:, 1]], axis=0).astype(np.float32)
+
+
 def ant_observation(qpos: np.ndarray, qvel: np.ndarray) -> np.ndarray:
-    """Build the 29D Ant Running observation from MuJoCo qpos/qvel."""
+    """Build the 31D Ant Running observation from MuJoCo qpos/qvel."""
     h = qpos[2:3]
     quat = qpos[3:7]
+    rot6d = quat_to_rot6d(quat)
     v_lin = qvel[0:3]
     v_ang = qvel[3:6]
     joint_pos = qpos[7:15]
@@ -63,7 +160,7 @@ def ant_observation(qpos: np.ndarray, qvel: np.ndarray) -> np.ndarray:
     p_heading = np.array([rot[0, 0]], dtype=np.float32)
 
     obs = np.concatenate(
-        [h, quat, v_lin, v_ang, joint_pos, joint_vel, p_up, p_heading],
+        [h, rot6d, v_lin, v_ang, joint_pos, joint_vel, p_up, p_heading],
         axis=0,
     ).astype(np.float32)
     if obs.shape != (OBS_DIM,):
@@ -72,9 +169,9 @@ def ant_observation(qpos: np.ndarray, qvel: np.ndarray) -> np.ndarray:
 
 
 def ant_reward(obs_after: np.ndarray) -> float:
-    vx = float(obs_after[5])
-    p_up = float(obs_after[27])
-    p_heading = float(obs_after[28])
+    vx = float(obs_after[7])
+    p_up = float(obs_after[29])
+    p_heading = float(obs_after[30])
     return vx + 0.1 * p_up + p_heading
 
 
@@ -296,10 +393,12 @@ def save_stats(stats: dict, out_dir: Path, prefix: str) -> None:
         "dims": {"obs": OBS_DIM, "action": ACT_DIM, "reward": 1},
         "obs_order": [
             "height",
-            "quat_w",
-            "quat_x",
-            "quat_y",
-            "quat_z",
+            "rot6d_col0_x",
+            "rot6d_col0_y",
+            "rot6d_col0_z",
+            "rot6d_col1_x",
+            "rot6d_col1_y",
+            "rot6d_col1_z",
             "v_x",
             "v_y",
             "v_z",

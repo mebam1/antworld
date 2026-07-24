@@ -10,7 +10,7 @@ test_h5_dir: ./dataset_h5_ant_running
 
 chunk_size: 5000
 MAX_ACTION_DIM: 8
-MAX_OBS_DIM: 29
+MAX_OBS_DIM: 31
 
 # Segment length. Ant episodes are at most 500 steps; 150 matches the default
 # WestWorld training window.
