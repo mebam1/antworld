@@ -29,6 +29,7 @@ from torch.distributions import Normal
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
+REPO_ROOT = SCRIPT_DIR.parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
@@ -47,6 +48,63 @@ from generate_ant_data import (  # noqa: E402
 
 
 PPO_DEFAULT_OUT = DEFAULT_OUT.parent / "ant_running_ppo"
+
+
+def resolve_repo_path(path: Path | str) -> Path:
+    resolved = Path(path).expanduser()
+    if not resolved.is_absolute():
+        resolved = REPO_ROOT / resolved
+    return resolved.resolve()
+
+
+def resolve_ppo_checkpoint(path: Path | str) -> Path:
+    resolved = resolve_repo_path(path)
+    if resolved.is_file():
+        return resolved
+    if not resolved.is_dir():
+        raise FileNotFoundError(resolved)
+
+    candidates = sorted(resolved.glob("ppo_ant_update_*.pt"), key=lambda p: p.stat().st_mtime, reverse=True)
+    if not candidates:
+        candidates = sorted(resolved.glob("*.pt"), key=lambda p: p.stat().st_mtime, reverse=True)
+    if not candidates:
+        raise FileNotFoundError(f"No PPO *.pt checkpoints found under {resolved}")
+    return candidates[0]
+
+
+def move_optimizer_state_to_device(optimizer: torch.optim.Optimizer, device: torch.device) -> None:
+    for state in optimizer.state.values():
+        for key, value in list(state.items()):
+            if isinstance(value, torch.Tensor):
+                state[key] = value.to(device)
+
+
+def restore_rng_states(checkpoint: dict, rng: np.random.Generator) -> None:
+    rng_state = checkpoint.get("rng_state")
+    if rng_state is not None:
+        rng.bit_generator.state = rng_state
+
+    python_random_state = checkpoint.get("python_random_state")
+    if python_random_state is not None:
+        random.setstate(python_random_state)
+
+    numpy_random_state = checkpoint.get("numpy_random_state")
+    if numpy_random_state is not None:
+        np.random.set_state(numpy_random_state)
+
+    torch_rng_state = checkpoint.get("torch_rng_state")
+    if torch_rng_state is not None:
+        torch.set_rng_state(torch_rng_state.cpu())
+
+    cuda_rng_states = checkpoint.get("torch_cuda_rng_state_all")
+    if cuda_rng_states is not None and torch.cuda.is_available():
+        if len(cuda_rng_states) == torch.cuda.device_count():
+            torch.cuda.set_rng_state_all([state.cpu() for state in cuda_rng_states])
+        else:
+            print(
+                "[warn] skipping CUDA RNG restore: "
+                f"checkpoint_states={len(cuda_rng_states)} visible_devices={torch.cuda.device_count()}"
+            )
 
 
 class MinMaxAccumulator:
@@ -582,6 +640,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--out-dir", type=Path, default=PPO_DEFAULT_OUT, help="Output directory for episodes_*.pt.")
     parser.add_argument("--prefix", default="ant_running_ppo", help="Output filename prefix.")
     parser.add_argument("--policy-dir", type=Path, default=SCRIPT_DIR / "ppo_checkpoints", help="Directory for PPO checkpoints.")
+    parser.add_argument(
+        "--resume-ppo-ckpt",
+        type=Path,
+        default=None,
+        help="Resume PPO training from a saved ppo_ant_update_*.pt file or a directory containing PPO checkpoints.",
+    )
     parser.add_argument("--seed", type=int, default=43)
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--total-updates", type=int, default=30)
@@ -652,6 +716,22 @@ def main() -> None:
     torch.manual_seed(args.seed)
     rng = np.random.default_rng(args.seed)
     device = torch.device(args.device)
+    resume_checkpoint = None
+    resume_update = 0
+    if args.resume_ppo_ckpt is not None:
+        args.resume_ppo_ckpt = resolve_ppo_checkpoint(args.resume_ppo_ckpt)
+        resume_checkpoint = torch.load(args.resume_ppo_ckpt, map_location="cpu", weights_only=False)
+        if "model_state_dict" not in resume_checkpoint:
+            raise KeyError(f"{args.resume_ppo_ckpt} does not contain model_state_dict")
+        saved_args = resume_checkpoint.get("args", {})
+        args.hidden_size = int(saved_args.get("hidden_size", args.hidden_size))
+        args.layers = int(saved_args.get("layers", args.layers))
+        resume_update = int(resume_checkpoint.get("update", 0))
+        if args.total_updates < resume_update:
+            raise ValueError(
+                f"--total-updates={args.total_updates} is behind resume checkpoint update={resume_update}. "
+                "--total-updates is the final target update number."
+            )
 
     backend = AntBackend.load(args.xml.resolve())
     if backend.nu != ACT_DIM:
@@ -661,6 +741,16 @@ def main() -> None:
 
     model = ActorCritic(OBS_DIM, ACT_DIM, hidden_size=args.hidden_size, layers=args.layers).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, eps=1e-5)
+    if resume_checkpoint is not None:
+        model.load_state_dict(resume_checkpoint["model_state_dict"])
+        if "optimizer_state_dict" in resume_checkpoint:
+            optimizer.load_state_dict(resume_checkpoint["optimizer_state_dict"])
+            move_optimizer_state_to_device(optimizer, device)
+        restore_rng_states(resume_checkpoint, rng)
+        print(
+            f"[resume PPO] {args.resume_ppo_ckpt} update={resume_update} "
+            f"hidden_size={args.hidden_size} layers={args.layers}"
+        )
 
     args.policy_dir.mkdir(parents=True, exist_ok=True)
     args.out_dir.mkdir(parents=True, exist_ok=True)
@@ -670,11 +760,11 @@ def main() -> None:
 
     print(
         "[train PPO before collection] "
-        f"updates={args.total_updates} rollout_steps={args.rollout_steps} "
+        f"start_update={resume_update + 1} total_updates={args.total_updates} rollout_steps={args.rollout_steps} "
         f"collect_episodes_after_training={collect_episodes}"
     )
 
-    for update_idx in range(1, args.total_updates + 1):
+    for update_idx in range(resume_update + 1, args.total_updates + 1):
         rollout = collect_ppo_rollout(
             backend,
             model,
@@ -715,6 +805,11 @@ def main() -> None:
             "model_state_dict": model.state_dict(),
             "optimizer_state_dict": optimizer.state_dict(),
             "args": vars(args),
+            "rng_state": rng.bit_generator.state,
+            "python_random_state": random.getstate(),
+            "numpy_random_state": np.random.get_state(),
+            "torch_rng_state": torch.get_rng_state(),
+            "torch_cuda_rng_state_all": torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None,
         },
         ckpt_path,
     )

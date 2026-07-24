@@ -30,6 +30,16 @@ docker compose run --rm westworld python Ant/ppo_collect_ant_data.py \
   --prefix ant_running_ppo
 ```
 
+기존 PPO checkpoint에서 이어서 학습하려면 `--resume-ppo-ckpt`를 추가합니다. `--total-updates`는 추가 update 수가 아니라 최종 목표 update 번호입니다. 예를 들어 `ppo_ant_update_0030.pt`에서 아래 명령을 실행하면 31부터 1000까지 이어서 학습한 뒤 episode 10개를 수집합니다.
+
+```bash
+docker compose run --rm westworld python Ant/ppo_collect_ant_data.py \
+  --resume-ppo-ckpt Ant/ppo_checkpoints/ppo_ant_update_0030.pt \
+  --total-updates 1000 \
+  --collect-episodes 10 \
+  --prefix ant_running_ppo
+```
+
 참고:
 - `--episodes-per-snapshot`은 호환용 alias로 남아 있지만, 새 코드에서는 최종 policy 수집 episode 수로만 쓰입니다.
 - `--collect-interval`은 더 이상 데이터 수집 주기를 제어하지 않습니다.
